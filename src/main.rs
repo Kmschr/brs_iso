@@ -6,7 +6,7 @@ mod tri;
 mod fps;
 mod lit;
 
-use std::{path::PathBuf, io::BufReader, fs::File};
+use std::{path::PathBuf, io::BufReader, fs::File, time::Duration};
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
 use bevy::{prelude::*, diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod};
@@ -24,6 +24,14 @@ struct ChunkEntity {
     material: Handle<StandardMaterial>,
 }
 
+#[derive(Component)]
+struct Chat;
+
+#[derive(Resource)]
+struct BackTimer {
+    timer: Timer
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -35,21 +43,95 @@ fn main() {
         }))
         // Disable MSAA as it is incompatible with deferred rendering, use FXAA instead
         .insert_resource(Msaa::Off)
+        .insert_resource(BackTimer {
+            timer: Timer::new(Duration::from_millis(50), TimerMode::Repeating)
+        })
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .add_plugins((LightPlugin, AssetLoaderPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         //.add_plugins(EditorPlugin::default())
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
-        .add_systems(Update, spawn_chunks)
-        //.add_systems(Update, light_gizmos)
+        .add_systems(Update, (load_save, spawn_chunks, chat))
+        .add_systems(Update, light_gizmos)
         //.add_systems(Update, spotlight_gizmos)
         .run();
 }
 
 fn setup(mut commands: Commands,
-         asset_server: Res<AssetServer>,
-         scene_assets: Res<SceneAssets>) {
+         asset_server: Res<AssetServer>) {
+    commands.spawn(AudioBundle {
+        source: asset_server.load("sounds/playerConnect.wav"),
+        ..default()
+    });
+
+    commands.spawn((
+        TextBundle::from("test").with_style(
+            Style {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(10.0),
+                left: Val::Px(15.0),
+                ..default()
+            }
+        ),
+        Chat
+    ));
+}
+
+fn chat(
+    mut query: Query<&mut Text, With<Chat>>,
+    keycode: Res<Input<KeyCode>>,
+    time: Res<Time>,
+    mut backspace_timer: ResMut<BackTimer>,
+) {
+    backspace_timer.timer.tick(time.delta());
+
+    let mut text = query.get_single_mut().unwrap();
+    for key in keycode.get_just_pressed() {
+        match key {
+            KeyCode::Back => {
+                text.sections[0].value.pop();
+            },
+            KeyCode::Space => {
+                text.sections[0].value.push(' ');
+            },
+            KeyCode::Tab => {
+                text.sections[0].value.push_str("    ");
+            },
+            KeyCode::Slash => {
+                text.sections[0].value.push('/');
+            },
+            KeyCode::ShiftLeft => {},
+            KeyCode::Underline => {
+                text.sections[0].value.push('_');
+            },
+            KeyCode::Period => {
+                text.sections[0].value.push('.');
+            }
+            _ => {
+                let mut key = format!("{:?}", key);
+                if !keycode.pressed(KeyCode::ShiftLeft) {
+                    key = key.to_lowercase();
+                };
+                text.sections[0].value.push_str(&key);
+            }
+        }
+    }
+
+    if keycode.pressed(KeyCode::Back) && backspace_timer.timer.finished() {
+        text.sections[0].value.pop();
+    }
+}
+
+fn load_save(
+    mut commands: Commands,
+    scene_assets: Res<SceneAssets>,
+    keycode: Res<Input<KeyCode>>
+) {
+    if !keycode.just_pressed(KeyCode::L) {
+        return;
+    }
+
     let path = ask_save_path();
     let save_data = load_save_data(path);
     info!("Loaded {:?} bricks", &save_data.bricks.len());
@@ -84,11 +166,6 @@ fn setup(mut commands: Commands,
     commands.spawn(ChunkEntity {
         meshes: tri::gen_save_mesh(&save_data, "BMC_Metallic"),
         material: scene_assets.metal_material.clone()
-    });
-
-    commands.spawn(AudioBundle {
-        source: asset_server.load("sounds/playerConnect.wav"),
-        ..default()
     });
 }
 

@@ -6,6 +6,10 @@ use crate::tri::cc;
 const BRIGHTNESS_MULTIPLIER: f32 = 20000.0;
 
 pub fn gen_point_lights(save_data: &SaveData) -> Vec<PointLightBundle> {
+    if !save_data.components.contains_key("BCD_PointLight") {
+        return vec![];
+    }
+
     let mut point_lights = Vec::with_capacity(save_data.components["BCD_PointLight"].brick_indices.len());
 
     let color_palette = &save_data
@@ -59,6 +63,10 @@ pub fn gen_point_lights(save_data: &SaveData) -> Vec<PointLightBundle> {
 }
 
 pub fn gen_spot_lights(save_data: &SaveData) -> Vec<SpotLightBundle> {
+    if !save_data.components.contains_key("BCD_SpotLight") {
+        return vec![];
+    }
+
     let mut spot_lights = Vec::with_capacity(save_data.components["BCD_SpotLight"].brick_indices.len());
 
     let color_palette = &save_data

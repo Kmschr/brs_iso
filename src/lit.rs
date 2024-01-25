@@ -1,7 +1,7 @@
 use bevy::{prelude::*, pbr::{DirectionalLightShadowMap, CascadeShadowConfigBuilder}};
 
 const SHADOW_MAP_SIZE: usize = 8192;
-const AMBIENT_BRIGHTNESS: f32 = 1.0;
+const AMBIENT_BRIGHTNESS: f32 = 0.5;
 const SUN_ILLUMINANCE: f32 = 20000.0;
 
 pub struct LightPlugin;
