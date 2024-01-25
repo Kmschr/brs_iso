@@ -15,7 +15,7 @@ impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_plugins(PanOrbitCameraPlugin)
-            .add_systems(Startup, (spawn_camera, spawn_orientation_cube))
+            .add_systems(Startup, spawn_camera)
             .add_systems(Update, screenshot_on_f2);
     }
 }
@@ -39,19 +39,6 @@ fn spawn_camera(
     MotionVectorPrepass,
     DeferredPrepass,
     Fxaa::default()));
-}
-
-fn spawn_orientation_cube(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
-    commands.spawn((PbrBundle {
-        mesh: meshes.add(shape::Cube::new(4.0).into()),
-        material: materials.add(Color::GRAY.into()),
-        ..default()
-    },
-    OrientationCube));
 }
 
 fn screenshot_on_f2(
