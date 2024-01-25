@@ -1,5 +1,6 @@
 mod asset_loader;
 mod cam;
+mod components;
 mod pos;
 mod tri;
 mod fps;
@@ -14,6 +15,8 @@ use brickadia::{save::SaveData, read::SaveReader};
 use cam::IsoCameraPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
+
+use crate::components::{gen_point_lights, gen_spot_lights};
 
 #[derive(Component, Debug)]
 struct ChunkEntity {
@@ -39,6 +42,8 @@ fn main() {
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
         .add_systems(Update, spawn_chunks)
+        //.add_systems(Update, light_gizmos)
+        //.add_systems(Update, spotlight_gizmos)
         .run();
 }
 
@@ -48,6 +53,18 @@ fn setup(mut commands: Commands,
     let path = ask_save_path();
     let save_data = load_save_data(path);
     info!("Loaded {:?} bricks", &save_data.bricks.len());
+
+    let point_lights = gen_point_lights(&save_data);
+    info!("Spawning {} point lights", point_lights.len());
+    for light in point_lights {
+        commands.spawn(light);
+    }
+
+    let spot_lights = gen_spot_lights(&save_data);
+    info!("Spawning {} spot lights", spot_lights.len());
+    for light in spot_lights {
+        commands.spawn(light);
+    }
 
     // todo: remove after meshes for most assets are generated
     info!("{:?}", &save_data.header2.brick_assets);
@@ -128,5 +145,23 @@ fn default_build_directory() -> Option<PathBuf> {
             ))
         }),
         _ => None,
+    }
+}
+
+fn light_gizmos(
+    mut gizmos: Gizmos,
+    query: Query<(&PointLight, &Transform)>
+) {
+    for (light, transform) in &query {
+        gizmos.sphere(transform.translation, transform.rotation, light.radius, light.color);
+    }
+}
+
+fn spotlight_gizmos(
+    mut gizmos: Gizmos,
+    query: Query<(&SpotLight, &Transform)>
+) {
+    for (light, transform) in &query {
+        gizmos.line(transform.translation, transform.translation + transform.forward() * light.radius, light.color);
     }
 }

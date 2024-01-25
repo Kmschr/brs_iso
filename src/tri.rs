@@ -8,6 +8,7 @@ use bevy::{
     prelude::*,
     render::render_resource::PrimitiveTopology,
 };
+use brickadia::util::BRICK_SIZE_MAP;
 use brickadia::{
     save::{BrickColor, Color, SaveData, Size, Brick},
     util::{rotation::d2o, octree::CHUNK_SIZE},
@@ -211,16 +212,16 @@ pub fn gen_save_mesh(save_data: &SaveData, brick_type: &str) -> Vec<Mesh> {
     let mut pre_coverage_count = 0;
     let mut final_face_count = 0;
 
+    let color_palette = &save_data
+        .header2
+        .colors
+        .iter()
+        .map(|color| cc(&color))
+        .collect::<Vec<[f32; 4]>>();
+
     let mut meshes = vec![];
     for (_coords, chunk) in chunks.iter() {
         let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
-
-        let color_palette = &save_data
-            .header2
-            .colors
-            .iter()
-            .map(|color| cc(&color))
-            .collect::<Vec<[f32; 4]>>();
 
         let mut position_buffer: Vec<[f32; 3]> = Vec::new();
         let mut color_buffer: Vec<[f32; 4]> = Vec::new();
@@ -229,580 +230,581 @@ pub fn gen_save_mesh(save_data: &SaveData, brick_type: &str) -> Vec<Mesh> {
         let mut chunk_faces: Vec<Face> = vec![];
 
         for brick in &chunk.bricks {
-            if let Size::Procedural(w, l, h) = brick.size {
-                let w = w as f32;
-                let l = l as f32;
-                let h = h as f32;
+            let brick_asset = &save_data.header2.brick_assets[brick.asset_name_index as usize];
 
-                let size = Vec3::new(w, h, l);
-
-                let brick_asset = &save_data.header2.brick_assets[brick.asset_name_index as usize];
-                let mut brick_faces = match brick_asset.as_str() {
-                    "PB_DefaultWedge" => {
-                        vec![
-                            Face::new(vec![
-                                size * A,
-                                size * B,
-                                size * G + TWOY,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * H + TWOY,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * H + TWOY,
-                                size * G + TWOY,
-                                size * G,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * F,
-                                size * G,
-                                size * G + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultRampInnerCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * A,
-                                size * B,
-                                size * B + TENX,
-                                size * A + TENX,
-                            ]),
-                            Face::new(vec![
-                                size * B + TENX,
-                                size * C,
-                                size * C + TENZ,
-                                size * B + TENX + TENZ,
-                            ]),
-                            Face::new(vec![
-                                size * A + TENX,
-                                size * B + TENX + TENZ,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * B + TENX + TENZ,
-                                size * C + TENZ,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * A + TENX,
-                                size * H + TWOY,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * C + TENZ,
-                                size * C,
-                                size * G,
-                                size * H,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    }
-                    "PB_DefaultRampCrest" => {
-                        vec![
-                            Face::new(vec![
-                                size * I,
-                                size * H + TWOY,
-                                size * H,
-                                size * E,
-                                size * E + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * F + TWOY,
-                                size * E + TWOY,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * H + TWOY,
-                                size * G + TWOY,
-                                size * G,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * J,
-                                size * I,
-                                size * E + TWOY,
-                                size * F + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * I,
-                                size * J,
-                                size * G + TWOY,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * J,
-                                size * F + TWOY,
-                                size * F,
-                                size * G,
-                                size * G + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultRampCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * B + TENX,
-                                size * B + TENX + TENZ,
-                                size * B + TENZ,
-                            ]),
-                            Face::new(vec![
-                                size * B + TENZ,
-                                size * B + TENX + TENZ,
-                                size * H + TWOY,
-                                size * E + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * B + TENX + TENZ,
-                                size * B + TENX,
-                                size * G + TWOY,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * E + TWOY,
-                                size * H + TWOY,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * H + TWOY,
-                                size * G + TWOY,
-                                size * G,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * B + TENZ,
-                                size * E + TWOY,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * B + TENX,
-                                size * B,
-                                size * F,
-                                size * G,
-                                size * G + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultMicroWedgeInnerCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * H,
-                                size * A,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * C,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * G,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultMicroWedgeCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * G,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    }
-                    "PB_DefaultMicroWedgeHalfOuterCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * A,
-                                size * C,
-                                size * G,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * A,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    }
-                    "PB_DefaultMicroWedgeHalfInnerCornerInverted" => {
-                        vec![
-                            Face::new(vec![
-                                size * C,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * G,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultMicroWedgeHalfInnerCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * A,
-                                size * G,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * F,
-                                size * G,
-                                size * A,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultMicroWedgeOuterCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * A,
-                                size * C,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * C,
-                                size * A,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * G,
-                                size * H,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultMicroWedgeTriangleCorner" => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * G,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * F,
-                                size * E,
-                                size * G,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultRamp" => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * B + TENX,
-                                size * A + TENX,
-                                size * A,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * A + TENX,
-                                size * H + TWOY,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * B + TENX,
-                                size * B,
-                                size * F,
-                                size * G,
-                                size * G + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * A + TENX,
-                                size * B + TENX,
-                                size * G + TWOY,
-                                size * H + TWOY,
-                            ]),
-                            Face::new(vec![
-                                size * H + TWOY,
-                                size * G + TWOY,
-                                size * G,
-                                size * H,
-                            ]),
-                        ]
-                    },
-                    "PB_DefaultMicroWedge" | "PB_DefaultSideWedgeTile" | "PB_DefaultSideWedge" => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * C,
-                                size * A,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * G,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * C,
-                                size * G,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                        ]
-                    },
-                    _ => {
-                        vec![
-                            Face::new(vec![
-                                size * B,
-                                size * C,
-                                size * D,
-                                size * A,
-                            ]),
-                            Face::new(vec![
-                                size * E,
-                                size * H,
-                                size * G,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * A,
-                                size * D,
-                                size * H,
-                                size * E,
-                            ]),
-                            Face::new(vec![
-                                size * C,
-                                size * B,
-                                size * F,
-                                size * G,
-                            ]),
-                            Face::new(vec![
-                                size * B,
-                                size * A,
-                                size * E,
-                                size * F,
-                            ]),
-                            Face::new(vec![
-                                size * D,
-                                size * C,
-                                size * G,
-                                size * H,
-                            ]),
-                        ]
-                    }
-                };
-                
-
-                let translation = Vec3::new(
-                    brick.position.0 as f32,
-                    brick.position.2 as f32,
-                    brick.position.1 as f32,
-                );
-
-                let color = match &brick.color {
-                    BrickColor::Index(i) => color_palette[*i as usize],
-                    BrickColor::Unique(color) => cc(color),
-                };
-
-                for face in &mut brick_faces {
-                    for vert in &mut face.verts {
-                        *vert = ORIENTATION_MAP[d2o(brick.direction as u8, brick.rotation as u8) as usize]
-                                .mul_vec3(*vert);
-                        *vert = *vert + translation;
-                    }
-                    face.calc_normal();
-                    face.color = color;
-
-                    if face.normal.y == -1.0 {
-                        continue;
-                    }
-
-                    chunk_faces.push(face.clone());
+            let size = match brick.size {
+                Size::Procedural(w, l, h) => Vec3::new(w as f32, h as f32, l as f32),
+                Size::Empty => {
+                    let (w, l, h) = BRICK_SIZE_MAP[brick_asset.as_str()];
+                    Vec3::new(w as f32, h as f32, l as f32)
                 }
+            };
+            
+            let mut brick_faces = match brick_asset.as_str() {
+                "PB_DefaultWedge" => {
+                    vec![
+                        Face::new(vec![
+                            size * A,
+                            size * B,
+                            size * G + TWOY,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * H + TWOY,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * H + TWOY,
+                            size * G + TWOY,
+                            size * G,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * F,
+                            size * G,
+                            size * G + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultRampInnerCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * A,
+                            size * B,
+                            size * B + TENX,
+                            size * A + TENX,
+                        ]),
+                        Face::new(vec![
+                            size * B + TENX,
+                            size * C,
+                            size * C + TENZ,
+                            size * B + TENX + TENZ,
+                        ]),
+                        Face::new(vec![
+                            size * A + TENX,
+                            size * B + TENX + TENZ,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * B + TENX + TENZ,
+                            size * C + TENZ,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * A + TENX,
+                            size * H + TWOY,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * C + TENZ,
+                            size * C,
+                            size * G,
+                            size * H,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                }
+                "PB_DefaultRampCrest" => {
+                    vec![
+                        Face::new(vec![
+                            size * I,
+                            size * H + TWOY,
+                            size * H,
+                            size * E,
+                            size * E + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * F + TWOY,
+                            size * E + TWOY,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * H + TWOY,
+                            size * G + TWOY,
+                            size * G,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * J,
+                            size * I,
+                            size * E + TWOY,
+                            size * F + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * I,
+                            size * J,
+                            size * G + TWOY,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * J,
+                            size * F + TWOY,
+                            size * F,
+                            size * G,
+                            size * G + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultRampCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * B + TENX,
+                            size * B + TENX + TENZ,
+                            size * B + TENZ,
+                        ]),
+                        Face::new(vec![
+                            size * B + TENZ,
+                            size * B + TENX + TENZ,
+                            size * H + TWOY,
+                            size * E + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * B + TENX + TENZ,
+                            size * B + TENX,
+                            size * G + TWOY,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * E + TWOY,
+                            size * H + TWOY,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * H + TWOY,
+                            size * G + TWOY,
+                            size * G,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * B + TENZ,
+                            size * E + TWOY,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * B + TENX,
+                            size * B,
+                            size * F,
+                            size * G,
+                            size * G + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultMicroWedgeInnerCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * H,
+                            size * A,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * C,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * G,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultMicroWedgeCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * G,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                }
+                "PB_DefaultMicroWedgeHalfOuterCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * A,
+                            size * C,
+                            size * G,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * A,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                }
+                "PB_DefaultMicroWedgeHalfInnerCornerInverted" => {
+                    vec![
+                        Face::new(vec![
+                            size * C,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * G,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultMicroWedgeHalfInnerCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * A,
+                            size * G,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * F,
+                            size * G,
+                            size * A,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultMicroWedgeOuterCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * A,
+                            size * C,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * C,
+                            size * A,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * G,
+                            size * H,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                    ]
+                },
+                "PB_DefaultMicroWedgeTriangleCorner" => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * G,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * F,
+                            size * E,
+                            size * G,
+                        ]),
+                    ]
+                },
+                "PB_DefaultRamp" => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * B + TENX,
+                            size * A + TENX,
+                            size * A,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * A + TENX,
+                            size * H + TWOY,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * B + TENX,
+                            size * B,
+                            size * F,
+                            size * G,
+                            size * G + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * A + TENX,
+                            size * B + TENX,
+                            size * G + TWOY,
+                            size * H + TWOY,
+                        ]),
+                        Face::new(vec![
+                            size * H + TWOY,
+                            size * G + TWOY,
+                            size * G,
+                            size * H,
+                        ]),
+                    ]
+                },
+                "PB_DefaultMicroWedge" | "PB_DefaultSideWedgeTile" | "PB_DefaultSideWedge" => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * C,
+                            size * A,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * G,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * C,
+                            size * G,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                    ]
+                },
+                _ => {
+                    vec![
+                        Face::new(vec![
+                            size * B,
+                            size * C,
+                            size * D,
+                            size * A,
+                        ]),
+                        Face::new(vec![
+                            size * E,
+                            size * H,
+                            size * G,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * A,
+                            size * D,
+                            size * H,
+                            size * E,
+                        ]),
+                        Face::new(vec![
+                            size * C,
+                            size * B,
+                            size * F,
+                            size * G,
+                        ]),
+                        Face::new(vec![
+                            size * B,
+                            size * A,
+                            size * E,
+                            size * F,
+                        ]),
+                        Face::new(vec![
+                            size * D,
+                            size * C,
+                            size * G,
+                            size * H,
+                        ]),
+                    ]
+                }
+            };
+            
+
+            let translation = Vec3::new(
+                brick.position.0 as f32,
+                brick.position.2 as f32,
+                brick.position.1 as f32,
+            );
+
+            let color = match &brick.color {
+                BrickColor::Index(i) => color_palette[*i as usize],
+                BrickColor::Unique(color) => cc(color),
+            };
+
+            for face in &mut brick_faces {
+                for vert in &mut face.verts {
+                    *vert = ORIENTATION_MAP[d2o(brick.direction as u8, brick.rotation as u8) as usize]
+                            .mul_vec3(*vert);
+                    *vert = *vert + translation;
+                }
+                face.calc_normal();
+                face.color = color;
+
+                if face.normal.y == -1.0 {
+                    continue;
+                }
+
+                chunk_faces.push(face.clone());
             }
         }
 
@@ -844,7 +846,7 @@ pub fn gen_save_mesh(save_data: &SaveData, brick_type: &str) -> Vec<Mesh> {
     meshes
 }
 
-fn cc(c: &Color) -> [f32; 4] {
+pub fn cc(c: &Color) -> [f32; 4] {
     [
         c.r as f32 / 255.0,
         c.g as f32 / 255.0,
