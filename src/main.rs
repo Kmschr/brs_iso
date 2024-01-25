@@ -107,7 +107,7 @@ fn chat(
             },
             KeyCode::Period => {
                 text.sections[0].value.push('.');
-            }
+            },
             _ => {
                 let mut key = format!("{:?}", key);
                 if !keycode.pressed(KeyCode::ShiftLeft) {
@@ -116,6 +116,16 @@ fn chat(
                 text.sections[0].value.push_str(&key);
             }
         }
+    }
+
+    let blink_duration = time.elapsed_seconds_f64() % 1.0;
+    if blink_duration < 0.5 && text.sections.len() == 1 {
+        text.sections.push(TextSection {
+            value: "|".into(),
+            ..default()
+        });
+    } else if text.sections.len() == 2 {
+        text.sections.pop();
     }
 
     if keycode.pressed(KeyCode::Back) && backspace_timer.timer.finished() {
