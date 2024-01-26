@@ -7,7 +7,7 @@ mod tri;
 mod fps;
 mod lit;
 
-use std::{path::PathBuf, io::BufReader, fs::File};
+use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
 use bevy::{prelude::*, diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod};
@@ -43,7 +43,7 @@ fn main() {
         //.add_plugins(EditorPlugin::default())
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
-        .add_systems(Update, (load_save, spawn_chunks))
+        .add_systems(Update, (pick_path, load_save, spawn_chunks))
         .add_systems(Update, light_gizmos)
         //.add_systems(Update, spotlight_gizmos)
         .run();
@@ -57,16 +57,36 @@ fn setup(mut commands: Commands,
     });
 }
 
+fn pick_path(
+    world: &mut World
+) {
+    let keycode = world.resource::<Input<KeyCode>>();
+    if keycode.just_pressed(KeyCode::L) {
+        let (tx, rx) = mpsc::channel();
+        world.insert_non_send_resource(rx);
+        thread::spawn(move || {
+            tx.send(ask_save_path()).unwrap();
+        });
+    }
+}
+
 fn load_save(
     mut commands: Commands,
     scene_assets: Res<SceneAssets>,
-    keycode: Res<Input<KeyCode>>
+    path_receiver: Option<NonSend<Receiver<PathBuf>>>,
 ) {
-    if !keycode.just_pressed(KeyCode::L) {
+    if path_receiver.is_none() {
         return;
     }
 
-    let path = ask_save_path();
+    let path_receiver = path_receiver.unwrap();
+    let path = path_receiver.try_recv();
+    if path.is_err() {
+        return;
+    }
+
+    let path = path.unwrap();
+
     let save_data = load_save_data(path);
     info!("Loaded {:?} bricks", &save_data.bricks.len());
 
