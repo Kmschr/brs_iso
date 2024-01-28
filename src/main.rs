@@ -44,7 +44,7 @@ fn main() {
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_save, spawn_chunks))
-        .add_systems(Update, light_gizmos)
+        //.add_systems(Update, light_gizmos)
         //.add_systems(Update, spotlight_gizmos)
         .run();
 }
