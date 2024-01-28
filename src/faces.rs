@@ -1,3 +1,5 @@
+use std::ops::Neg;
+
 use bevy::prelude::*;
 
 const A: Vec3 = Vec3::new(-1., 1., 1.);
@@ -60,11 +62,9 @@ impl Face {
         let c = self.verts[2];
 
         let dir = (b - a).cross(c - a);
-        let mut normal = -dir.normalize();
+        let normal = -dir.normalize();
 
-        if normal.z < 0.000001 {
-            normal.z = 0.;
-        }
+        let normal = ((normal * 10.).as_ivec3().as_vec3() / 10.).normalize();
 
         self.normal = normal;
     }
@@ -79,18 +79,17 @@ impl Face {
         positions
     }
 
-    fn to_2d(&self) -> Vec<Vec2> {
+    pub fn to_2d(&self, flip_normal: bool) -> Vec<Vec2> {
         let mut points = Vec::with_capacity(self.verts.len());
 
         for p in &self.verts {
-            let n = &self.normal;
+            let mut n = self.normal.clone();
 
-            // Select a non-zero vector V not parallel to N
-            let v = if n.z == 0. {
-                Vec3::new(0., n.z, -n.y)
-            } else {
-                Vec3::new(n.y, -n.x, 0.)
-            };
+            if flip_normal {
+                n = n.neg();
+            }
+
+            let v = Vec3::new(666.0, 69.0, 420.0);
 
             // Calculate the cross product U = N X V
             let u = n.cross(v);
@@ -105,17 +104,24 @@ impl Face {
             points.push(Vec2::new(x, y));
         }
 
-        vec![]
+        points
     }
 
     pub fn inside(&self, other: &Face) -> bool {
-        if self.normal != other.normal {
+        // check coplanar
+        if self.normal.abs() != other.normal.abs() {
             info!("normals were not equal??? - {} != {}", self.normal, other.normal);
             return false;
         }
 
-        for vert in self.to_2d() {
-            if !point_inside_face(vert, other.to_2d()) {
+        // check coincident planes
+        let distance = (self.verts[0] - other.verts[0]).dot(self.normal);
+        if distance.abs() > 0.0001 {
+            return false;
+        }
+
+        for vert in self.to_2d(false) {
+            if !point_inside_face(vert, other.to_2d(true)) {
                 return false;
             }
         }
@@ -132,6 +138,10 @@ fn point_inside_face(point: Vec2, face: Vec<Vec2>) -> bool {
         let p1 = face[i];
         let p2 = face[(i + 1) % n];
 
+        if point == p1 || point == p2 || point_on_edge(point, p1, p2)  {
+            return true;
+        }
+
         if (p1.y > point.y) != (p2.y > point.y) &&
            point.x < ((p2.x - p1.x) * (point.y - p1.y) / (p2.y - p1.y) + p1.x) {
             num_intersections += 1;
@@ -139,6 +149,22 @@ fn point_inside_face(point: Vec2, face: Vec<Vec2>) -> bool {
     }
 
     num_intersections % 2 == 1
+}
+
+fn point_on_edge(point: Vec2, edge_start: Vec2, edge_end: Vec2) -> bool {
+    // Check if the point is collinear with the edge and lies within the edge bounds
+    (point.x - edge_start.x).abs() < f32::EPSILON
+    && (point.y - edge_start.y).abs() < f32::EPSILON
+    || (point.x - edge_end.x).abs() < f32::EPSILON
+        && (point.y - edge_end.y).abs() < f32::EPSILON
+    || ((point.x - edge_start.x) / (edge_end.x - edge_start.x)
+            - (point.y - edge_start.y) / (edge_end.y - edge_start.y))
+        .abs()
+        < f32::EPSILON
+        && point.x >= f32::min(edge_start.x, edge_end.x)
+        && point.x <= f32::max(edge_start.x, edge_end.x)
+        && point.y >= f32::min(edge_start.y, edge_end.y)
+        && point.y <= f32::max(edge_start.y, edge_end.y)
 }
 
 pub fn default_wedge(size: Vec3) -> Vec<Face> {

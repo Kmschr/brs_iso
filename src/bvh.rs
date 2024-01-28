@@ -1,4 +1,4 @@
-use std::time::SystemTime;
+use std::{time::SystemTime, ops::Neg};
 
 use bevy::{prelude::*, render::render_resource::PrimitiveTopology, utils::HashMap};
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o, get_axis_size}};
@@ -117,7 +117,7 @@ pub fn gen_mesh(bvh: &BVHNode, save_data: &SaveData) -> Mesh {
 
     for brick in bricks {
         let color = &save_data.bricks[brick.brick_index].color;
-        let mut color = match color {
+        let color = match color {
             BrickColor::Index(i) => cc(&save_data.header2.colors[*i as usize]),
             BrickColor::Unique(color) => cc(color),
         };
@@ -127,6 +127,7 @@ pub fn gen_mesh(bvh: &BVHNode, save_data: &SaveData) -> Mesh {
             let normal = face.normal.to_array();
             final_faces += 1;
 
+            let mut color = color;
             if face.color_override {
                 color = [0.9, 0.08, 0.8, 1.0];
             }
@@ -160,6 +161,8 @@ fn brick_traverse(bvh: &BVHNode, bricks: &mut Vec<BrickData>, root: &BVHNode) {
             let mut neighbors = vec![];
             traverse_neighbors(root, &brick, &mut neighbors);
 
+            //info!("{} has {} neighbors", brick.brick_index, neighbors.len());
+
             cull_faces(&mut brick, neighbors);
 
             bricks.push(brick.clone());
@@ -180,37 +183,42 @@ fn cull_faces(brick: &mut BrickData, neighbors: Vec<BrickData>) {
         }
     }
 
-    // brick.faces.retain(|face| {
-    //     let int_normal = (face.normal * 100.0).as_ivec3();
-    //     let aligned_faces = &neighbor_faces.get(&int_normal);
-    //     if aligned_faces.is_none() {
-    //         return true;
-    //     }
-    //     let aligned_faces = aligned_faces.unwrap();
+    //info!("neighbor_faces: {:?}", neighbor_faces.keys());
 
-    //     for other_face in aligned_faces {
-    //         if face.inside(other_face) {
-    //             return false;
-    //         }
-    //     }
-
-    //     true
-    // });
-
-    for face in &mut brick.faces {
-        let int_normal = (face.normal * 100.0).as_ivec3();
-        let aligned_faces = &neighbor_faces.get(&int_normal);
-        if aligned_faces.is_none() {
-            continue;
+    brick.faces.retain(|face| {
+        let int_normal = (face.normal * 100.0).as_ivec3().neg();
+        let opposite_faces = &neighbor_faces.get(&int_normal);
+        if opposite_faces.is_none() {
+            return true;
         }
-        let aligned_faces = aligned_faces.unwrap();
+        let coplanar_faces = opposite_faces.unwrap();
 
-        for other_face in aligned_faces {
+        for other_face in coplanar_faces {
             if face.inside(other_face) {
-                face.color_override = true;
+                return false;
             }
         }
-    }
+
+        true
+    });
+
+    // for face in &mut brick.faces {
+    //     let int_normal = (face.normal * 100.0).as_ivec3().neg();
+    //     let opposite_faces = &neighbor_faces.get(&int_normal);
+    //     if opposite_faces.is_none() {
+    //         //info!("Face {} has zero neighbors", face.normal);
+    //         continue;
+    //     }
+    //     let coplanar_faces = opposite_faces.unwrap();
+
+    //     //info!("Face {} has {} opposite neighbor(s)", face.normal, coplanar_faces.len());
+
+    //     for other_face in coplanar_faces {
+    //         if face.inside(other_face) {
+    //             face.color_override = true;
+    //         }
+    //     }
+    // }
 }
 
 fn traverse_neighbors(bvh: &BVHNode, target: &BrickData, neighbors: &mut Vec<BrickData>) {

@@ -22,7 +22,7 @@ use chat::ChatPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
 
-use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::{construct_bvh, gen_mesh}};
+use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::{construct_bvh, gen_mesh}, faces::Face};
 
 #[derive(Component, Debug)]
 struct ChunkEntity {
