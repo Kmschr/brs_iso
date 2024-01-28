@@ -108,17 +108,17 @@ fn load_save(
     let save_data = load_save_data(path);
     info!("Loaded {:?} bricks", &save_data.bricks.len());
 
-    let point_lights = gen_point_lights(&save_data);
-    info!("Spawning {} point lights", point_lights.len());
-    for light in point_lights {
-        commands.spawn(light);
-    }
+    // let point_lights = gen_point_lights(&save_data);
+    // info!("Spawning {} point lights", point_lights.len());
+    // for light in point_lights {
+    //     commands.spawn(light);
+    // }
 
-    let spot_lights = gen_spot_lights(&save_data);
-    info!("Spawning {} spot lights", spot_lights.len());
-    for light in spot_lights {
-        commands.spawn(light);
-    }
+    // let spot_lights = gen_spot_lights(&save_data);
+    // info!("Spawning {} spot lights", spot_lights.len());
+    // for light in spot_lights {
+    //     commands.spawn(light);
+    // }
 
     // todo: remove after meshes for most assets are generated
     info!("{:?}", &save_data.header2.brick_assets);

@@ -1,10 +1,10 @@
-use std::{time::SystemTime, ops::Neg, cell::RefCell, borrow::BorrowMut};
+use std::{time::SystemTime, ops::Neg, cell::RefCell};
 
-use bevy::{prelude::*, render::render_resource::PrimitiveTopology, utils::HashMap};
+use bevy::{prelude::*, reflect::Array, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
 
-use crate::{faces::*, aabb::AABB, utils::cc, octree::SaveOctree};
+use crate::{faces::*, aabb::AABB, utils::cc};
 
 macro_rules! rm {
     (
@@ -49,8 +49,6 @@ lazy_static! {
 
 const CHUNK_SIZE: i32 = 2048;
 
-struct BrickFaces(Option<Vec<Face>>);
-
 pub enum BVHNode {
     Leaf { i: usize },
     Internal { aabb: AABB, left: Box<BVHNode>, right: Box<BVHNode> }
@@ -74,18 +72,18 @@ impl Buffers {
 
 pub struct BVHMeshGenerator<'a> {
     save_data: &'a SaveData,
-    faces: RefCell<Vec<BrickFaces>>,
+    faces: Vec<Vec<Face>>,
     aabbs: Vec<AABB>,
     pub bvh: BVHNode,
 }
 
 impl<'a> BVHMeshGenerator<'a> {
     pub fn new(save_data: &'a SaveData) -> Self {
-        let faces = RefCell::new(gen_faces(save_data));
+        let faces = gen_faces(save_data);
         let aabbs = gen_aabbs(save_data);
         let now = SystemTime::now();
         let indices = (0..save_data.bricks.len()).collect();
-        let bvh = top_down_bv_tree(indices, save_data, &aabbs, 0);
+        let bvh = top_down_bv_tree(indices, save_data, &aabbs);
         info!("Built BVH in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
         Self {
@@ -97,20 +95,45 @@ impl<'a> BVHMeshGenerator<'a> {
     }
 
     pub fn gen_mesh(&self) -> Vec<Mesh> {
+        // let now = SystemTime::now();
+        // {
+        //     let mut face_map: HashMap<Face, (usize, usize, bool)> = HashMap::new();
+        //     for i in 0..self.save_data.bricks.len() {
+        //         if let Some(faces) = self.faces.borrow_mut()[i].0.as_mut() {
+        //             for j in 0..faces.len() {
+        //                 if face_map.contains_key(&faces[j]) {
+        //                     faces[j].hidden = true;
+        //                     let (_, _, hidden) = face_map.get_mut(&faces[j]).unwrap();
+        //                     *hidden = true;
+        //                 } else {
+        //                     face_map.insert(faces[j].clone(), (i, j, false));
+        //                 }
+        //             }
+        //         }
+        //     }
+
+        //     for (i, j, hidden) in face_map.values() {
+        //         if *hidden {
+        //             self.faces.borrow_mut()[*i].0.as_mut().unwrap()[*j].hidden = true;
+        //         }
+        //     }
+        // }
+        // info!("Initial culling took {} seconds", now.elapsed().unwrap().as_secs_f32());
+
+        let mut hidden: HashSet<(usize, usize)> = HashSet::new();
+
         let now = SystemTime::now();
-        
         for i in 0..self.save_data.bricks.len() {
-            if self.faces.borrow()[i].0.is_none() {
+            if self.faces[i].len() == 0 {
                 continue;
             }
 
             let mut neighbors = vec![];
             //let now = SystemTime::now();
             self.traverse_neighbors(&self.bvh, i, &mut neighbors);
-            //let neighbors = self.octree.brick_all_sides(i);
             //info!("Finding neighbors took {} usec", now.elapsed().unwrap().as_micros());
-            //let now = SystemTime::now();
-            self.cull_faces(i, neighbors);
+            let now = SystemTime::now();
+            self.cull_faces(i, neighbors, &mut hidden);
             //info!("Culling took {} usec", now.elapsed().unwrap().as_micros());
             //break;
         }
@@ -119,10 +142,9 @@ impl<'a> BVHMeshGenerator<'a> {
         let now = SystemTime::now();
         let mut chunks: HashMap<IVec3, Buffers> = HashMap::new();
         let mut final_faces = 0;
-        let faces = self.faces.borrow();
         for i in 0..self.save_data.bricks.len() {
-            let brick_faces = faces[i].0.as_ref();
-            if brick_faces.is_none() {
+            let brick_faces = &self.faces[i];
+            if brick_faces.is_empty() {
                 continue;
             }
 
@@ -138,18 +160,15 @@ impl<'a> BVHMeshGenerator<'a> {
                 BrickColor::Index(i) => cc(&self.save_data.header2.colors[*i as usize]),
                 BrickColor::Unique(color) => cc(color),
             };
-
-            let brick_faces = brick_faces.unwrap();
     
-            for face in brick_faces {
+            for j in 0..brick_faces.len() {
+                if hidden.contains(&(i, j)) {
+                    continue;
+                }
+
+                let face = &self.faces[i][j];
                 let positions = face.positions();
                 let normal = face.normal.to_array();
-    
-                //let mut color = color;
-                if face.hidden {
-                    continue;
-                    //color = [0.9, 0.08, 0.8, 1.0];
-                }
 
                 final_faces += 1;
     
@@ -176,37 +195,36 @@ impl<'a> BVHMeshGenerator<'a> {
         meshes
     }
 
-    fn cull_faces(&self, target: usize, neighbors: Vec<usize>) {
-        let mut neighbor_faces: HashMap<IVec3, Vec<Face>> = HashMap::new();
-        for neighbor in neighbors {
-            let faces = &self.faces.borrow()[neighbor].0;
-            if faces.is_none() {
-                continue;
-            }
-            let faces = faces.as_ref().unwrap();
-
-            for face in faces {
+    fn cull_faces(&self, target: usize, neighbors: Vec<usize>, hidden: &mut HashSet<(usize, usize)>) {
+        let mut neighbor_faces: HashMap<IVec3, Vec<(usize, usize)>> = HashMap::new();
+        for i in neighbors {
+            for j in 0..self.faces[i].len() {
+                let face = &self.faces[i][j];
                 let int_normal = (face.normal * 100.0).as_ivec3();
                 if neighbor_faces.contains_key(&int_normal) {
-                    neighbor_faces.get_mut(&int_normal).unwrap().push(face.clone());
+                    neighbor_faces.get_mut(&int_normal).unwrap().push((i, j));
                 } else {
-                    neighbor_faces.insert(int_normal, vec![face.clone()]);
+                    neighbor_faces.insert(int_normal, vec![(i, j)]);
                 }
             }
         }
 
-        let mut faces = self.faces.borrow_mut();
-        let brick_faces = faces[target].0.as_mut().unwrap();
-        for face in brick_faces {
+        for j in 0..self.faces[target].len() {
+            let face = &self.faces[target][j];
+            if hidden.contains(&(target, j)) {
+                continue;
+            }
+
             let int_normal = (face.normal * 100.0).as_ivec3().neg();
             let opposite_faces = &neighbor_faces.get(&int_normal);
             if opposite_faces.is_none() {
                 continue;
             }
             let coplanar_faces = opposite_faces.unwrap();
-            for other_face in coplanar_faces {
-                if face.inside(other_face) {
-                    face.hidden = true;
+            for (other_i, other_j) in coplanar_faces {
+                let other = &self.faces[*other_i][*other_j];
+                if face.inside(other) {
+                    hidden.insert((target, j));
                     break;
                 }
             }
@@ -235,41 +253,26 @@ impl<'a> BVHMeshGenerator<'a> {
     }
 }
 
-fn top_down_bv_tree(mut indices: Vec<usize>, save_data: &SaveData, aabbs: &Vec<AABB>, cut_axis: u8) -> BVHNode {
+fn top_down_bv_tree(mut indices: Vec<usize>, save_data: &SaveData, aabbs: &Vec<AABB>) -> BVHNode {
     if indices.len() <= 1 {
         let i = indices.pop().unwrap();
         BVHNode::Leaf {
             i,
         }
     } else {
-        let (k, aabb) = partition_bricks(&mut indices, aabbs, cut_axis);
+        let (k, aabb) = partition_bricks(&mut indices, aabbs);
 
         let right_bricks = indices.drain(k..).collect();
         let left_bricks = indices;
 
-        let new_axis = (cut_axis + 1) % 3;
-
-        let left = Box::new(top_down_bv_tree(left_bricks, save_data, aabbs, new_axis));
-        let right = Box::new(top_down_bv_tree(right_bricks, save_data, aabbs, new_axis));
+        let left = Box::new(top_down_bv_tree(left_bricks, save_data, aabbs));
+        let right = Box::new(top_down_bv_tree(right_bricks, save_data, aabbs));
 
         BVHNode::Internal { aabb, left, right }
     }
 }
 
-fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>, cut_axis: u8) -> (usize, AABB) {
-    match cut_axis {
-        0 => {
-            indices.sort_by_key(|i| aabbs[*i].center.x);
-        },
-        1 => {
-            indices.sort_by_key(|i| aabbs[*i].center.y);
-        },
-        2 => {
-            indices.sort_by_key(|i| aabbs[*i].center.z);
-        },
-        _ => unreachable!()
-    }
-
+fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB) {
     // calculate volume containing all sub-volumes
     let mut min = aabbs[indices[0]].center;
     let mut max = aabbs[indices[0]].center;
@@ -303,12 +306,20 @@ fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>, cut_axis: u8) -
         halfwidths
     };
 
+    // cut based on longest axis
+    if aabb.halfwidths.x > aabb.halfwidths.y && aabb.halfwidths.x > aabb.halfwidths.z {
+        indices.sort_by_key(|i| aabbs[*i].center.x);
+    } else if aabb.halfwidths.y > aabb.halfwidths.x && aabb.halfwidths.y > aabb.halfwidths.z {
+        indices.sort_by_key(|i| aabbs[*i].center.y);
+    } else {
+        indices.sort_by_key(|i| aabbs[*i].center.z);
+    }
     
     (indices.len() / 2, aabb)
 }
 
 
-fn gen_faces(save_data: &SaveData) -> Vec<BrickFaces> {
+fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
     let now = SystemTime::now();
     let mut facecount = 0;
     let mut data = Vec::with_capacity(save_data.bricks.len());
@@ -316,7 +327,7 @@ fn gen_faces(save_data: &SaveData) -> Vec<BrickFaces> {
         let brick = &save_data.bricks[i];
 
         if !brick.visibility {
-            data.push(BrickFaces(None));
+            data.push(Vec::new());
             continue;
         }
 
@@ -365,7 +376,7 @@ fn gen_faces(save_data: &SaveData) -> Vec<BrickFaces> {
 
         facecount += brick_faces.len();
 
-        data.push(BrickFaces(Some(brick_faces)));
+        data.push(brick_faces);
     }
 
     info!("Generated {} faces in {} seconds", facecount, now.elapsed().unwrap().as_secs_f32());

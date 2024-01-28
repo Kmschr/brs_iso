@@ -1,6 +1,7 @@
-use std::ops::Neg;
+use std::{hash::Hasher, ops::Neg};
+use std::hash::Hash;
 
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::AHasher};
 
 const A: Vec3 = Vec3::new(-1., 1., 1.);
 const B: Vec3 = Vec3::new(-1., 1., -1.);
@@ -43,14 +44,12 @@ pub struct Face {
     // verts start at top left corner of face and are ordered clockwise
     pub verts: Vec<Vec3>,
     pub normal: Vec3,
-    pub hidden: bool,
 }
 
 impl Face {
     pub fn new(verts: Vec<Vec3>) -> Self {
         Face {
             verts,
-            hidden: false,
             ..default()
         }
     }
@@ -108,14 +107,8 @@ impl Face {
     }
 
     pub fn inside(&self, other: &Face) -> bool {
-        // check coplanar
-        if self.normal.abs() != other.normal.abs() {
-            return false;
-        }
-
-        // check coincident planes
-        let distance = (self.verts[0] - other.verts[0]).dot(self.normal);
-        if distance.abs() > 0.0001 {
+        // check opposite coplanar and coincident
+        if self.normal != other.normal.neg() || !self.coincident_planes(other) {
             return false;
         }
 
@@ -127,6 +120,59 @@ impl Face {
 
         true
     }
+
+    pub fn coincident_planes(&self, other: &Face) -> bool {
+        let distance = (self.verts[0] - other.verts[0]).dot(self.normal);
+        if distance.abs() > 0.0001 {
+            return false;
+        }
+        return true;
+    }
+
+    pub fn merge(&self, other: &Face) -> Option<Face> {
+        if !self.coincident_planes(other) {
+            return None;
+        }
+
+        None
+    }
+}
+
+impl Hash for Face {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let mut verts: Vec<u128> = Vec::with_capacity(self.verts.len());
+        for v in &self.verts {
+            let x_bits = v.x.to_bits() as u128;
+            let y_bits = v.y.to_bits() as u128;
+            let z_bits = v.z.to_bits() as u128;
+
+            let value = (x_bits << 64) | (y_bits << 32) | z_bits;
+
+            verts.push(value);
+        }
+        verts.sort();
+        for vert in verts {
+            vert.hash(state);
+        }
+    }
+}
+
+impl PartialEq for Face {
+    fn eq(&self, other: &Self) -> bool {
+        let mut hasher = AHasher::default();
+        self.hash(&mut hasher);
+        let a = hasher.finish();
+
+        let mut hasher = AHasher::default();
+        other.hash(&mut hasher);
+        let b = hasher.finish();
+
+        a == b
+    }
+}
+
+impl Eq for Face {
+
 }
 
 fn point_inside_face(point: Vec2, face: Vec<Vec2>) -> bool {
@@ -164,6 +210,24 @@ fn point_on_edge(point: Vec2, edge_start: Vec2, edge_end: Vec2) -> bool {
         && point.x <= f32::max(edge_start.x, edge_end.x)
         && point.y >= f32::min(edge_start.y, edge_end.y)
         && point.y <= f32::max(edge_start.y, edge_end.y)
+}
+
+pub fn merge_faces(faces: Vec<Face>) -> Vec<Face> {
+    let mut final_faces = vec![];
+
+    for i in 0..faces.len() {
+
+        for j in 0..faces.len() {
+            if i == j {
+                continue;
+            }
+
+            let merged = faces[i].merge(&faces[j]);
+        }
+
+    }
+
+    final_faces
 }
 
 pub fn default_wedge(size: Vec3) -> Vec<Face> {
