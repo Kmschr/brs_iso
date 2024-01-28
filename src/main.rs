@@ -1,8 +1,11 @@
 mod asset_loader;
+mod bvh;
 mod cam;
 mod chat;
 mod components;
+mod faces;
 mod pos;
+mod mat;
 mod tri;
 mod fps;
 mod lit;
@@ -13,17 +16,28 @@ use asset_loader::{AssetLoaderPlugin, SceneAssets};
 use bevy::{prelude::*, diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod};
 //use bevy_editor_pls::EditorPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
+use bvh::BVHNode;
 use cam::IsoCameraPlugin;
 use chat::ChatPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
 
-use crate::components::{gen_point_lights, gen_spot_lights};
+use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::{construct_bvh, gen_mesh}};
 
 #[derive(Component, Debug)]
 struct ChunkEntity {
     meshes: Vec<Mesh>,
     material: Handle<StandardMaterial>,
+}
+
+#[derive(Component)]
+struct SaveBVH {
+    bvh: BVHNode,
+}
+
+#[derive(Resource, Default)]
+struct BVHDepth {
+    value: u8,
 }
 
 fn main() {
@@ -38,13 +52,15 @@ fn main() {
         // Disable MSAA as it is incompatible with deferred rendering, use FXAA instead
         .insert_resource(Msaa::Off)
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
-        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin))
+        .insert_resource(BVHDepth::default())
+        .add_plugins((LightPlugin, AssetLoaderPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         //.add_plugins(EditorPlugin::default())
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_save, spawn_chunks))
         .add_systems(Update, light_gizmos)
+        .add_systems(Update, (bvh_gizmos, change_depth))
         //.add_systems(Update, spotlight_gizmos)
         .run();
 }
@@ -105,22 +121,35 @@ fn load_save(
     // todo: remove after meshes for most assets are generated
     info!("{:?}", &save_data.header2.brick_assets);
 
+    // commands.spawn(ChunkEntity {
+    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Plastic"),
+    //     material: scene_assets.plastic_material.clone()
+    // });
+    // commands.spawn(ChunkEntity {
+    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Glass"),
+    //     material: scene_assets.glass_material.clone()
+    // });
+    // commands.spawn(ChunkEntity {
+    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Glow"),
+    //     material: scene_assets.glow_material.clone()
+    // });
+    // commands.spawn(ChunkEntity {
+    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Metallic"),
+    //     material: scene_assets.metal_material.clone()
+    // });
+    
+    let bvh = construct_bvh(&save_data);
+    let mesh = gen_mesh(&bvh, &save_data);
+
     commands.spawn(ChunkEntity {
-        meshes: tri::gen_save_mesh(&save_data, "BMC_Plastic"),
+        meshes: vec![mesh],
         material: scene_assets.plastic_material.clone()
     });
-    commands.spawn(ChunkEntity {
-        meshes: tri::gen_save_mesh(&save_data, "BMC_Glass"),
-        material: scene_assets.glass_material.clone()
+
+    commands.spawn(SaveBVH {
+        bvh
     });
-    commands.spawn(ChunkEntity {
-        meshes: tri::gen_save_mesh(&save_data, "BMC_Glow"),
-        material: scene_assets.glow_material.clone()
-    });
-    commands.spawn(ChunkEntity {
-        meshes: tri::gen_save_mesh(&save_data, "BMC_Metallic"),
-        material: scene_assets.metal_material.clone()
-    });
+
 }
 
 fn spawn_chunks(
@@ -194,5 +223,64 @@ fn spotlight_gizmos(
 ) {
     for (light, transform) in &query {
         gizmos.line(transform.translation, transform.translation + transform.forward() * light.radius, light.color);
+    }
+}
+
+fn bvh_gizmos (
+    mut gizmos: Gizmos,
+    query: Query<&SaveBVH>,
+    bvh_depth: Res<BVHDepth>
+) {
+    for save_bvh in &query {
+        aabb_gizmos_recursive(&save_bvh.bvh, &mut gizmos, 0, bvh_depth.value);
+    }
+}
+
+fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_depth: u8) {
+
+    let color = match depth {
+        0 => Color::WHITE,
+        1 => Color::BLUE,
+        2 => Color::GREEN,
+        3 => Color::YELLOW,
+        _ => Color::WHITE,
+    };
+
+    match bvh {
+        BVHNode::Internal { aabb, left, right } => {
+
+            if depth == target_depth {
+                gizmos.cuboid(Transform {
+                    translation: aabb.pos.as_vec3(),
+                    rotation: Quat::IDENTITY,
+                    scale: aabb.size.as_vec3() * 2.0,
+                }, color);
+            }
+
+            aabb_gizmos_recursive(&left, gizmos, depth + 1, target_depth);
+            aabb_gizmos_recursive(&right, gizmos, depth + 1, target_depth);
+        },
+        BVHNode::Leaf { data } => {
+            if depth == target_depth {
+                let aabb = &data.aabb;
+                gizmos.cuboid(Transform {
+                    translation: aabb.pos.as_vec3(),
+                    rotation: Quat::IDENTITY,
+                    scale: aabb.size.as_vec3() * 2.0,
+                }, Color::PINK);
+            }
+        }
+    }
+}
+
+fn change_depth(
+    keycode: Res<Input<KeyCode>>,
+    mut bvh_depth: ResMut<BVHDepth>,
+) {
+    if keycode.just_pressed(KeyCode::W) {
+        bvh_depth.value += 1;
+    }
+    if keycode.just_pressed(KeyCode::S) {
+        bvh_depth.value -= 1;
     }
 }
