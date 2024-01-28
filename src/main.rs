@@ -7,6 +7,7 @@ mod components;
 mod faces;
 mod pos;
 mod mat;
+mod octree;
 mod fps;
 mod lit;
 mod utils;
@@ -60,8 +61,8 @@ fn main() {
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_save, spawn_chunks))
-        .add_systems(Update, light_gizmos)
-        .add_systems(Update, (bvh_gizmos, change_depth))
+        //.add_systems(Update, light_gizmos)
+        //.add_systems(Update, (bvh_gizmos, change_depth))
         //.add_systems(Update, spotlight_gizmos)
         .run();
 }
@@ -140,10 +141,10 @@ fn load_save(
     // });
     
     let generator = BVHMeshGenerator::new(&save_data);
-    let mesh = generator.gen_mesh();
+    let meshes = generator.gen_mesh();
 
     commands.spawn(ChunkEntity {
-        meshes: vec![mesh],
+        meshes,
         material: scene_assets.plastic_material.clone()
     });
 
