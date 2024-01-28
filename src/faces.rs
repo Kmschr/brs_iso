@@ -43,14 +43,14 @@ pub struct Face {
     // verts start at top left corner of face and are ordered clockwise
     pub verts: Vec<Vec3>,
     pub normal: Vec3,
-    pub color_override: bool,
+    pub hidden: bool,
 }
 
 impl Face {
     pub fn new(verts: Vec<Vec3>) -> Self {
         Face {
             verts,
-            color_override: false,
+            hidden: false,
             ..default()
         }
     }
@@ -110,7 +110,6 @@ impl Face {
     pub fn inside(&self, other: &Face) -> bool {
         // check coplanar
         if self.normal.abs() != other.normal.abs() {
-            info!("normals were not equal??? - {} != {}", self.normal, other.normal);
             return false;
         }
 

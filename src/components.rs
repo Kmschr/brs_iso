@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use brickadia::save::{UnrealType, SaveData, BrickColor};
 
-use crate::tri::cc;
+use crate::utils::cc;
 
 const BRIGHTNESS_MULTIPLIER: f32 = 20000.0;
 

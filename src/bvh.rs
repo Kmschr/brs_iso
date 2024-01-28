@@ -1,10 +1,10 @@
-use std::{time::SystemTime, ops::Neg};
+use std::{time::SystemTime, ops::Neg, cell::RefCell};
 
 use bevy::{prelude::*, render::render_resource::PrimitiveTopology, utils::HashMap};
-use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o, get_axis_size}};
+use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
 
-use crate::{faces::*, tri::cc};
+use crate::{faces::*, aabb::AABB, utils::cc};
 
 macro_rules! rm {
     (
@@ -47,242 +47,220 @@ lazy_static! {
     ];
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct AABB {
-    pub pos: IVec3,
-    pub size: IVec3,
+#[derive(Debug, Hash, PartialEq, Eq)]
+struct ChunkCoordinates {
+    x: i32,
+    y: i32,
+    z: i32,
 }
 
-impl AABB {
-    fn from_brick(brick: &Brick, save_data: &SaveData) -> Self {
-        let pos = IVec3::new(
-            brick.position.0 as i32,
-            brick.position.2 as i32,
-            brick.position.1 as i32,
-        );
-        let w = get_axis_size(brick, &save_data.header2.brick_assets, 0) as i32;
-        let h = get_axis_size(brick, &save_data.header2.brick_assets, 2) as i32;
-        let l = get_axis_size(brick, &save_data.header2.brick_assets, 1) as i32;
-        Self {
-            pos,
-            size: IVec3::new(w, h, l),
-        }
-    }
-
-    fn intersects(&self, other: &AABB) -> bool {
-        if (self.pos.x - other.pos.x).abs() > (self.size.x + other.size.x) {
-            return false;
-        }
-        if (self.pos.y - other.pos.y).abs() > (self.size.y + other.size.y) {
-            return false;
-        }
-        if (self.pos.z - other.pos.z).abs() > (self.size.z + other.size.z) {
-            return false;
-        }
-        true
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BrickData {
-    pub aabb: AABB,
-    pub brick_index: usize,
-    pub faces: Vec<Face>,
-}
+struct BrickFaces(Option<Vec<Face>>);
 
 pub enum BVHNode {
-    Leaf { data: BrickData },
+    Leaf { i: usize },
     Internal { aabb: AABB, left: Box<BVHNode>, right: Box<BVHNode> }
 }
 
-pub fn construct_bvh(save_data: &SaveData) -> BVHNode {
-    let now = SystemTime::now();
-    let (bricks, total_faces) = build_faces(save_data);
-    let bvh = top_down_bv_tree(bricks, 0);
-    info!("Built {} faces and BVH in {} seconds", total_faces, now.elapsed().unwrap().as_secs_f32());
-    bvh
+pub struct BVHMeshGenerator<'a> {
+    save_data: &'a SaveData,
+    faces: RefCell<Vec<BrickFaces>>,
+    aabbs: Vec<AABB>,
+    pub bvh: BVHNode,
 }
 
-pub fn gen_mesh(bvh: &BVHNode, save_data: &SaveData) -> Mesh {
-    let mut bricks = Vec::with_capacity(save_data.bricks.len());
-    brick_traverse(&bvh, &mut bricks, &bvh);
+impl<'a> BVHMeshGenerator<'a> {
+    pub fn new(save_data: &'a SaveData) -> Self {
+        let faces = RefCell::new(gen_faces(save_data));
+        let aabbs = gen_aabbs(save_data);
+        let now = SystemTime::now();
+        let indices = (0..save_data.bricks.len()).collect();
+        let bvh = top_down_bv_tree(indices, save_data, &aabbs, 0);
+        info!("Built BVH in {} seconds", now.elapsed().unwrap().as_secs_f32());
+        Self {
+            save_data,
+            faces,
+            aabbs,
+            bvh
+        }
+    }
 
-    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+    pub fn gen_mesh(&self) -> Mesh {
+        let now = SystemTime::now();
+        self.brick_traverse(&self.bvh);
+        info!("Culled faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
+    
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+    
+        let mut position_buffer: Vec<[f32; 3]> = Vec::new();
+        let mut color_buffer: Vec<[f32; 4]> = Vec::new();
+        let mut normal_buffer: Vec<[f32; 3]> = Vec::new();
+    
+        let mut final_faces = 0;
+    
+        let faces = self.faces.borrow();
+        for i in 0..self.save_data.bricks.len() {
+            let color = &self.save_data.bricks[i].color;
+            let color = match color {
+                BrickColor::Index(i) => cc(&self.save_data.header2.colors[*i as usize]),
+                BrickColor::Unique(color) => cc(color),
+            };
 
-    let mut position_buffer: Vec<[f32; 3]> = Vec::new();
-    let mut color_buffer: Vec<[f32; 4]> = Vec::new();
-    let mut normal_buffer: Vec<[f32; 3]> = Vec::new();
-
-    let mut final_faces = 0;
-
-    for brick in bricks {
-        let color = &save_data.bricks[brick.brick_index].color;
-        let color = match color {
-            BrickColor::Index(i) => cc(&save_data.header2.colors[*i as usize]),
-            BrickColor::Unique(color) => cc(color),
-        };
-
-        for face in brick.faces {
-            let positions = face.positions();
-            let normal = face.normal.to_array();
-            final_faces += 1;
-
-            let mut color = color;
-            if face.color_override {
-                color = [0.9, 0.08, 0.8, 1.0];
+            let brick_faces = faces[i].0.as_ref();
+            if brick_faces.is_none() {
+                continue;
             }
+            let brick_faces = brick_faces.unwrap();
+    
+            for face in brick_faces {
+                let positions = face.positions();
+                let normal = face.normal.to_array();
+    
+                //let mut color = color;
+                if face.hidden {
+                    continue;
+                    //color = [0.9, 0.08, 0.8, 1.0];
+                }
 
-            for pos in positions {
-                position_buffer.push(pos);
-                color_buffer.push(color);
-                normal_buffer.push(normal);
+                final_faces += 1;
+    
+                for pos in positions {
+                    position_buffer.push(pos);
+                    color_buffer.push(color);
+                    normal_buffer.push(normal);
+                }
+            }
+        }
+    
+        info!("{} final faces", final_faces);
+    
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, position_buffer);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, color_buffer);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normal_buffer);
+    
+        mesh
+    }
+
+    fn brick_traverse(&self, current_node: &BVHNode) {
+        match current_node {
+            BVHNode::Internal { aabb: _, left, right } => {
+                self.brick_traverse(left);
+                self.brick_traverse(right);
+            },
+            BVHNode::Leaf { i } => {
+                if self.faces.borrow()[*i].0.is_none() {
+                    return;
+                }
+                let mut neighbors = vec![];
+                self.traverse_neighbors(&self.bvh, *i, &mut neighbors);    
+                self.cull_faces(*i, neighbors);
             }
         }
     }
 
-    info!("{} final faces", final_faces);
+    fn cull_faces(&self, target: usize, neighbors: Vec<usize>) {
+        let mut neighbor_faces: HashMap<IVec3, Vec<Face>> = HashMap::new();
+        for neighbor in neighbors {
+            let faces = &self.faces.borrow()[neighbor].0;
+            if faces.is_none() {
+                continue;
+            }
+            let faces = faces.as_ref().unwrap();
 
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, position_buffer);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, color_buffer);
-    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normal_buffer);
+            for face in faces {
+                let int_normal = (face.normal * 100.0).as_ivec3();
+                if neighbor_faces.contains_key(&int_normal) {
+                    neighbor_faces.get_mut(&int_normal).unwrap().push(face.clone());
+                } else {
+                    neighbor_faces.insert(int_normal, vec![face.clone()]);
+                }
+            }
+        }
 
-    mesh
-}
+        let mut faces = self.faces.borrow_mut();
+        let brick_faces = faces[target].0.as_mut().unwrap();
+        for face in brick_faces {
+            let int_normal = (face.normal * 100.0).as_ivec3().neg();
+            let opposite_faces = &neighbor_faces.get(&int_normal);
+            if opposite_faces.is_none() {
+                continue;
+            }
+            let coplanar_faces = opposite_faces.unwrap();
+            for other_face in coplanar_faces {
+                if face.inside(other_face) {
+                    face.hidden = true;
+                    break;
+                }
+            }
+        }
+    }
+    
 
-fn brick_traverse(bvh: &BVHNode, bricks: &mut Vec<BrickData>, root: &BVHNode) {
-    match bvh {
-        BVHNode::Internal { aabb: _, left, right } => {
-            brick_traverse(left, bricks, root);
-            brick_traverse(right, bricks, root);
-        },
-        BVHNode::Leaf { data } => {
-            let mut brick = data.clone();
-
-            let mut neighbors = vec![];
-            traverse_neighbors(root, &brick, &mut neighbors);
-
-            //info!("{} has {} neighbors", brick.brick_index, neighbors.len());
-
-            cull_faces(&mut brick, neighbors);
-
-            bricks.push(brick.clone());
+    fn traverse_neighbors(&self, current_node: &BVHNode, target_index: usize, neighbors: &mut Vec<usize>) {
+        let target_aabb = self.aabbs[target_index];
+        match current_node {
+            BVHNode::Internal { aabb, left, right } => {
+                if !target_aabb.intersects(aabb) {
+                    return;
+                }
+                self.traverse_neighbors(&left, target_index, neighbors);
+                self.traverse_neighbors(&right, target_index, neighbors);
+            },
+            BVHNode::Leaf { i } => {
+                if target_index == *i || !target_aabb.intersects(&self.aabbs[*i])  {
+                    return;
+                }
+                neighbors.push(*i);
+            }
         }
     }
 }
 
-fn cull_faces(brick: &mut BrickData, neighbors: Vec<BrickData>) {
-    let mut neighbor_faces: HashMap<IVec3, Vec<Face>> = HashMap::new();
-    for mut neighbor in neighbors {
-        while let Some(face) = neighbor.faces.pop() {
-            let int_normal = (face.normal * 100.0).as_ivec3();
-            if neighbor_faces.contains_key(&int_normal) {
-                neighbor_faces.get_mut(&int_normal).unwrap().push(face);
-            } else {
-                neighbor_faces.insert(int_normal, vec![face]);
-            }
-        }
-    }
-
-    //info!("neighbor_faces: {:?}", neighbor_faces.keys());
-
-    brick.faces.retain(|face| {
-        let int_normal = (face.normal * 100.0).as_ivec3().neg();
-        let opposite_faces = &neighbor_faces.get(&int_normal);
-        if opposite_faces.is_none() {
-            return true;
-        }
-        let coplanar_faces = opposite_faces.unwrap();
-
-        for other_face in coplanar_faces {
-            if face.inside(other_face) {
-                return false;
-            }
-        }
-
-        true
-    });
-
-    // for face in &mut brick.faces {
-    //     let int_normal = (face.normal * 100.0).as_ivec3().neg();
-    //     let opposite_faces = &neighbor_faces.get(&int_normal);
-    //     if opposite_faces.is_none() {
-    //         //info!("Face {} has zero neighbors", face.normal);
-    //         continue;
-    //     }
-    //     let coplanar_faces = opposite_faces.unwrap();
-
-    //     //info!("Face {} has {} opposite neighbor(s)", face.normal, coplanar_faces.len());
-
-    //     for other_face in coplanar_faces {
-    //         if face.inside(other_face) {
-    //             face.color_override = true;
-    //         }
-    //     }
-    // }
-}
-
-fn traverse_neighbors(bvh: &BVHNode, target: &BrickData, neighbors: &mut Vec<BrickData>) {
-    match bvh {
-        BVHNode::Internal { aabb: b, left, right } => {
-            if !target.aabb.intersects(b) {
-                return;
-            }
-            traverse_neighbors(&left, target, neighbors);
-            traverse_neighbors(&right, target, neighbors);
-        },
-        BVHNode::Leaf { data: brick } => {
-            if !target.aabb.intersects(&brick.aabb) || target.brick_index == brick.brick_index {
-                return;
-            }
-            neighbors.push(brick.clone());
-        }
-    }
-}
-
-fn top_down_bv_tree(mut bricks: Vec<BrickData>, cut_axis: u8) -> BVHNode {
-    if bricks.len() <= 1 {
+fn top_down_bv_tree(mut indices: Vec<usize>, save_data: &SaveData, aabbs: &Vec<AABB>, cut_axis: u8) -> BVHNode {
+    if indices.len() <= 1 {
+        let i = indices.pop().unwrap();
         BVHNode::Leaf {
-            data: bricks.pop().unwrap()
+            i,
         }
     } else {
-        let (k, aabb) = partition_bricks(&mut bricks, cut_axis);
+        let (k, aabb) = partition_bricks(&mut indices, aabbs, cut_axis);
 
-        let right_bricks = bricks.drain(k..).collect();
-        let left_bricks = bricks;
+        let right_bricks = indices.drain(k..).collect();
+        let left_bricks = indices;
 
         let new_axis = (cut_axis + 1) % 3;
 
-        let left = Box::new(top_down_bv_tree(left_bricks, new_axis));
-        let right = Box::new(top_down_bv_tree(right_bricks, new_axis));
+        let left = Box::new(top_down_bv_tree(left_bricks, save_data, aabbs, new_axis));
+        let right = Box::new(top_down_bv_tree(right_bricks, save_data, aabbs, new_axis));
 
         BVHNode::Internal { aabb, left, right }
     }
 }
 
-fn partition_bricks(bricks: &mut Vec<BrickData>, cut_axis: u8) -> (usize, AABB) {
+fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>, cut_axis: u8) -> (usize, AABB) {
     match cut_axis {
         0 => {
-            bricks.sort_by_key(|data| data.aabb.pos.x);
+            indices.sort_by_key(|i| aabbs[*i].center.x);
         },
         1 => {
-            bricks.sort_by_key(|data| data.aabb.pos.y);
+            indices.sort_by_key(|i| aabbs[*i].center.y);
         },
         2 => {
-            bricks.sort_by_key(|data| data.aabb.pos.z);
+            indices.sort_by_key(|i| aabbs[*i].center.z);
         },
         _ => unreachable!()
     }
 
     // calculate volume containing all sub-volumes
-    let mut min = bricks[0].aabb.pos;
-    let mut max = bricks[0].aabb.pos;
+    let mut min = aabbs[0].center;
+    let mut max = aabbs[0].center;
 
-    for brick in bricks.iter() {
-        let brick_min = brick.aabb.pos - brick.aabb.size;
-        let brick_max = brick.aabb.pos + brick.aabb.size;
+    for i in indices.iter() {
+        let aabb = &aabbs[*i];
+        let aabb_min = aabb.center - aabb.halfwidths;
+        let aabb_max = aabb.center + aabb.halfwidths;
 
-        min = min.min(brick_min);
-        max = max.max(brick_max);
+        min = min.min(aabb_min);
+        max = max.max(aabb_max);
     }
 
     // if total size is uneven add a bit to the max of the volume
@@ -298,24 +276,27 @@ fn partition_bricks(bricks: &mut Vec<BrickData>, cut_axis: u8) -> (usize, AABB) 
     }
 
     let center = (min + max) / 2;
-    let half_width = (max - min) / 2;
+    let halfwidths = (max - min) / 2;
 
     let aabb = AABB {
-        pos: center,
-        size: half_width
+        center,
+        halfwidths
     };
 
     
-    (bricks.len() / 2, aabb)
+    (indices.len() / 2, aabb)
 }
 
-fn build_faces(save_data: &SaveData) -> (Vec<BrickData>, usize) {
+
+fn gen_faces(save_data: &SaveData) -> Vec<BrickFaces> {
+    let now = SystemTime::now();
     let mut facecount = 0;
     let mut data = Vec::with_capacity(save_data.bricks.len());
     for i in 0..save_data.bricks.len() {
         let brick = &save_data.bricks[i];
 
         if !brick.visibility {
+            data.push(BrickFaces(None));
             continue;
         }
 
@@ -364,13 +345,25 @@ fn build_faces(save_data: &SaveData) -> (Vec<BrickData>, usize) {
 
         facecount += brick_faces.len();
 
-        data.push(BrickData {
-            aabb: AABB::from_brick(brick, save_data),
-            brick_index: i,
-            faces: brick_faces
-        });
+        data.push(BrickFaces(Some(brick_faces)));
     }
-    (data, facecount)
+
+    info!("Generated {} faces in {} seconds", facecount, now.elapsed().unwrap().as_secs_f32());
+
+    data
+}
+
+fn gen_aabbs(save_data: &SaveData) -> Vec<AABB> {
+    let now = SystemTime::now();
+    let mut aabbs = Vec::with_capacity(save_data.bricks.len());
+
+    for brick in &save_data.bricks {
+        aabbs.push(AABB::from_brick(brick, save_data));
+    }
+
+    info!("Generated AABBs in {} seconds", now.elapsed().unwrap().as_secs_f32());
+
+    aabbs
 }
 
 fn brick_pos(brick: &Brick) -> Vec3 {
@@ -380,4 +373,3 @@ fn brick_pos(brick: &Brick) -> Vec3 {
         brick.position.1 as f32,
     )
 }
-

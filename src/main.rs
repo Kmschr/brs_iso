@@ -1,3 +1,4 @@
+mod aabb;
 mod asset_loader;
 mod bvh;
 mod cam;
@@ -6,9 +7,9 @@ mod components;
 mod faces;
 mod pos;
 mod mat;
-mod tri;
 mod fps;
 mod lit;
+mod utils;
 
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
@@ -22,7 +23,7 @@ use chat::ChatPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
 
-use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::{construct_bvh, gen_mesh}, faces::Face};
+use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::BVHMeshGenerator};
 
 #[derive(Component, Debug)]
 struct ChunkEntity {
@@ -138,8 +139,8 @@ fn load_save(
     //     material: scene_assets.metal_material.clone()
     // });
     
-    let bvh = construct_bvh(&save_data);
-    let mesh = gen_mesh(&bvh, &save_data);
+    let generator = BVHMeshGenerator::new(&save_data);
+    let mesh = generator.gen_mesh();
 
     commands.spawn(ChunkEntity {
         meshes: vec![mesh],
@@ -147,7 +148,7 @@ fn load_save(
     });
 
     commands.spawn(SaveBVH {
-        bvh
+        bvh: generator.bvh
     });
 
 }
@@ -251,25 +252,16 @@ fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_d
 
             if depth == target_depth {
                 gizmos.cuboid(Transform {
-                    translation: aabb.pos.as_vec3(),
+                    translation: aabb.center.as_vec3(),
                     rotation: Quat::IDENTITY,
-                    scale: aabb.size.as_vec3() * 2.0,
+                    scale: aabb.halfwidths.as_vec3() * 2.0,
                 }, color);
             }
 
             aabb_gizmos_recursive(&left, gizmos, depth + 1, target_depth);
             aabb_gizmos_recursive(&right, gizmos, depth + 1, target_depth);
         },
-        BVHNode::Leaf { data } => {
-            if depth == target_depth {
-                let aabb = &data.aabb;
-                gizmos.cuboid(Transform {
-                    translation: aabb.pos.as_vec3(),
-                    rotation: Quat::IDENTITY,
-                    scale: aabb.size.as_vec3() * 2.0,
-                }, Color::PINK);
-            }
-        }
+        BVHNode::Leaf { i } => {}
     }
 }
 
