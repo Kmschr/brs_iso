@@ -41,12 +41,14 @@ pub struct Face {
     // verts start at top left corner of face and are ordered clockwise
     pub verts: Vec<Vec3>,
     pub normal: Vec3,
+    pub color_override: bool,
 }
 
 impl Face {
     pub fn new(verts: Vec<Vec3>) -> Self {
         Face {
             verts,
+            color_override: false,
             ..default()
         }
     }
@@ -58,7 +60,7 @@ impl Face {
         let c = self.verts[2];
 
         let dir = (b - a).cross(c - a);
-        let mut normal = dir / -dir.length();
+        let mut normal = -dir.normalize();
 
         if normal.z < 0.000001 {
             normal.z = 0.;
@@ -77,44 +79,66 @@ impl Face {
         positions
     }
 
+    fn to_2d(&self) -> Vec<Vec2> {
+        let mut points = Vec::with_capacity(self.verts.len());
+
+        for p in &self.verts {
+            let n = &self.normal;
+
+            // Select a non-zero vector V not parallel to N
+            let v = if n.z == 0. {
+                Vec3::new(0., n.z, -n.y)
+            } else {
+                Vec3::new(n.y, -n.x, 0.)
+            };
+
+            // Calculate the cross product U = N X V
+            let u = n.cross(v);
+
+            // Normalize V and U
+            let u = u.normalize();
+            let v = v.normalize();
+
+            let x = u.dot(*p);
+            let y = v.dot(*p);
+
+            points.push(Vec2::new(x, y));
+        }
+
+        vec![]
+    }
+
     pub fn inside(&self, other: &Face) -> bool {
         if self.normal != other.normal {
             info!("normals were not equal??? - {} != {}", self.normal, other.normal);
             return false;
         }
 
-        for vert in &self.verts {
-            if !is_point_inside_face(*vert, other) {
+        for vert in self.to_2d() {
+            if !point_inside_face(vert, other.to_2d()) {
                 return false;
             }
         }
 
-        false
+        true
     }
 }
 
-// Helper function to check if a point is inside a face
-fn is_point_inside_face(point: Vec3, face: &Face) -> bool {
-    // Calculate the normal vector of the face formed by the point and two consecutive vertices
-    let normal_test = (face.verts[1] - face.verts[0]).cross(point - face.verts[0]);
+fn point_inside_face(point: Vec2, face: Vec<Vec2>) -> bool {
+    let n = face.len();
+    let mut num_intersections = 0;
 
-    // Check if the normal vectors are in the same direction
-    if face.normal.dot(normal_test) < 0.0 {
-        return false;
-    }
+    for i in 0..n {
+        let p1 = face[i];
+        let p2 = face[(i + 1) % n];
 
-    // Repeat the process for each edge of the face
-    for i in 1..face.verts.len() {
-        let normal_test = (face.verts[(i + 1) % face.verts.len()] - face.verts[i])
-            .cross(point - face.verts[i]);
-
-        if face.normal.dot(normal_test) < 0.0 {
-            return false;
+        if (p1.y > point.y) != (p2.y > point.y) &&
+           point.x < ((p2.x - p1.x) * (point.y - p1.y) / (p2.y - p1.y) + p1.x) {
+            num_intersections += 1;
         }
     }
 
-    // If the point is inside all edges, it is inside the face
-    true
+    num_intersections % 2 == 1
 }
 
 pub fn default_wedge(size: Vec3) -> Vec<Face> {

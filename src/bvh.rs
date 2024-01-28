@@ -97,9 +97,9 @@ pub enum BVHNode {
 
 pub fn construct_bvh(save_data: &SaveData) -> BVHNode {
     let now = SystemTime::now();
-    let bricks = build_faces(save_data);
+    let (bricks, total_faces) = build_faces(save_data);
     let bvh = top_down_bv_tree(bricks, 0);
-    info!("Built faces and BVH in {} seconds", now.elapsed().unwrap().as_secs_f32());
+    info!("Built {} faces and BVH in {} seconds", total_faces, now.elapsed().unwrap().as_secs_f32());
     bvh
 }
 
@@ -113,9 +113,11 @@ pub fn gen_mesh(bvh: &BVHNode, save_data: &SaveData) -> Mesh {
     let mut color_buffer: Vec<[f32; 4]> = Vec::new();
     let mut normal_buffer: Vec<[f32; 3]> = Vec::new();
 
+    let mut final_faces = 0;
+
     for brick in bricks {
         let color = &save_data.bricks[brick.brick_index].color;
-        let color = match color {
+        let mut color = match color {
             BrickColor::Index(i) => cc(&save_data.header2.colors[*i as usize]),
             BrickColor::Unique(color) => cc(color),
         };
@@ -123,6 +125,11 @@ pub fn gen_mesh(bvh: &BVHNode, save_data: &SaveData) -> Mesh {
         for face in brick.faces {
             let positions = face.positions();
             let normal = face.normal.to_array();
+            final_faces += 1;
+
+            if face.color_override {
+                color = [0.9, 0.08, 0.8, 1.0];
+            }
 
             for pos in positions {
                 position_buffer.push(pos);
@@ -131,6 +138,8 @@ pub fn gen_mesh(bvh: &BVHNode, save_data: &SaveData) -> Mesh {
             }
         }
     }
+
+    info!("{} final faces", final_faces);
 
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, position_buffer);
     mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, color_buffer);
@@ -149,7 +158,7 @@ fn brick_traverse(bvh: &BVHNode, bricks: &mut Vec<BrickData>, root: &BVHNode) {
             let mut brick = data.clone();
 
             let mut neighbors = vec![];
-            traverse_neighbors(root, &data.aabb, &mut neighbors);
+            traverse_neighbors(root, &brick, &mut neighbors);
 
             cull_faces(&mut brick, neighbors);
 
@@ -171,40 +180,53 @@ fn cull_faces(brick: &mut BrickData, neighbors: Vec<BrickData>) {
         }
     }
 
-    brick.faces.retain(|face| {
+    // brick.faces.retain(|face| {
+    //     let int_normal = (face.normal * 100.0).as_ivec3();
+    //     let aligned_faces = &neighbor_faces.get(&int_normal);
+    //     if aligned_faces.is_none() {
+    //         return true;
+    //     }
+    //     let aligned_faces = aligned_faces.unwrap();
+
+    //     for other_face in aligned_faces {
+    //         if face.inside(other_face) {
+    //             return false;
+    //         }
+    //     }
+
+    //     true
+    // });
+
+    for face in &mut brick.faces {
         let int_normal = (face.normal * 100.0).as_ivec3();
         let aligned_faces = &neighbor_faces.get(&int_normal);
         if aligned_faces.is_none() {
-            return true;
+            continue;
         }
         let aligned_faces = aligned_faces.unwrap();
 
         for other_face in aligned_faces {
-            //info!("{:?}\n{:?}", &face.verts, &other_face.verts);
             if face.inside(other_face) {
-                info!("just culled a face");
-                return false;
+                face.color_override = true;
             }
         }
-
-        true
-    });
+    }
 }
 
-fn traverse_neighbors(bvh: &BVHNode, a: &AABB, neighbors: &mut Vec<BrickData>) {
+fn traverse_neighbors(bvh: &BVHNode, target: &BrickData, neighbors: &mut Vec<BrickData>) {
     match bvh {
         BVHNode::Internal { aabb: b, left, right } => {
-            if !a.intersects(b) {
+            if !target.aabb.intersects(b) {
                 return;
             }
-            traverse_neighbors(&left, a, neighbors);
-            traverse_neighbors(&right, a, neighbors);
+            traverse_neighbors(&left, target, neighbors);
+            traverse_neighbors(&right, target, neighbors);
         },
-        BVHNode::Leaf { data } => {
-            if !a.intersects(&data.aabb) {
+        BVHNode::Leaf { data: brick } => {
+            if !target.aabb.intersects(&brick.aabb) || target.brick_index == brick.brick_index {
                 return;
             }
-            neighbors.push(data.clone());
+            neighbors.push(brick.clone());
         }
     }
 }
@@ -279,10 +301,15 @@ fn partition_bricks(bricks: &mut Vec<BrickData>, cut_axis: u8) -> (usize, AABB) 
     (bricks.len() / 2, aabb)
 }
 
-fn build_faces(save_data: &SaveData) -> Vec<BrickData> {
+fn build_faces(save_data: &SaveData) -> (Vec<BrickData>, usize) {
+    let mut facecount = 0;
     let mut data = Vec::with_capacity(save_data.bricks.len());
     for i in 0..save_data.bricks.len() {
         let brick = &save_data.bricks[i];
+
+        if !brick.visibility {
+            continue;
+        }
 
         let brick_asset = &save_data.header2.brick_assets[brick.asset_name_index as usize];
         let size = match brick.size {
@@ -327,13 +354,15 @@ fn build_faces(save_data: &SaveData) -> Vec<BrickData> {
             face.normal != Vec3::NEG_Y
         });
 
+        facecount += brick_faces.len();
+
         data.push(BrickData {
             aabb: AABB::from_brick(brick, save_data),
             brick_index: i,
             faces: brick_faces
         });
     }
-    data
+    (data, facecount)
 }
 
 fn brick_pos(brick: &Brick) -> Vec3 {
