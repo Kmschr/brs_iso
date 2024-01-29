@@ -43,13 +43,16 @@ const TWOY: Vec3 = Vec3::new(0., 2., 0.);
 pub struct Face {
     // verts start at top left corner of face and are ordered clockwise
     pub verts: Vec<Vec3>,
+    pub verts_2d: Vec<Vec2>,
     pub normal: Vec3,
 }
 
 impl Face {
     pub fn new(verts: Vec<Vec3>) -> Self {
+        let verts_2d = Vec::with_capacity(verts.len());
         Face {
             verts,
+            verts_2d,
             ..default()
         }
     }
@@ -68,6 +71,24 @@ impl Face {
         self.normal = normal;
     }
 
+    pub fn calc_2d(&mut self) {
+        for p in &self.verts {
+            let v = Vec3::new(666.0, 69.0, 420.0);
+
+            // Calculate the cross product U = N X V
+            let u = self.normal.abs().cross(v);
+
+            // Normalize V and U
+            let u = u.normalize();
+            let v = v.normalize();
+
+            let x = u.dot(*p);
+            let y = v.dot(*p);
+
+            self.verts_2d.push(Vec2::new(x, y));
+        }
+    }
+
     pub fn positions(&self) -> Vec<[f32; 3]> {
         let mut positions = vec![];
         for i in 0..(self.verts.len() - 2) {
@@ -78,42 +99,14 @@ impl Face {
         positions
     }
 
-    pub fn to_2d(&self, flip_normal: bool) -> Vec<Vec2> {
-        let mut points = Vec::with_capacity(self.verts.len());
-
-        for p in &self.verts {
-            let mut n = self.normal.clone();
-
-            if flip_normal {
-                n = n.neg();
-            }
-
-            let v = Vec3::new(666.0, 69.0, 420.0);
-
-            // Calculate the cross product U = N X V
-            let u = n.cross(v);
-
-            // Normalize V and U
-            let u = u.normalize();
-            let v = v.normalize();
-
-            let x = u.dot(*p);
-            let y = v.dot(*p);
-
-            points.push(Vec2::new(x, y));
-        }
-
-        points
-    }
-
     pub fn inside(&self, other: &Face) -> bool {
         // check opposite coplanar and coincident
         if self.normal != other.normal.neg() || !self.coincident_planes(other) {
             return false;
         }
 
-        for vert in self.to_2d(false) {
-            if !point_inside_face(vert, other.to_2d(true)) {
+        for vert in &self.verts_2d {
+            if !point_inside_face(vert, &other.verts_2d) {
                 return false;
             }
         }
@@ -127,14 +120,6 @@ impl Face {
             return false;
         }
         return true;
-    }
-
-    pub fn merge(&self, other: &Face) -> Option<Face> {
-        if !self.coincident_planes(other) {
-            return None;
-        }
-
-        None
     }
 }
 
@@ -175,15 +160,15 @@ impl Eq for Face {
 
 }
 
-fn point_inside_face(point: Vec2, face: Vec<Vec2>) -> bool {
+fn point_inside_face(point: &Vec2, face: &Vec<Vec2>) -> bool {
     let n = face.len();
     let mut num_intersections = 0;
 
     for i in 0..n {
-        let p1 = face[i];
-        let p2 = face[(i + 1) % n];
+        let p1 = &face[i];
+        let p2 = &face[(i + 1) % n];
 
-        if point == p1 || point == p2 || point_on_edge(point, p1, p2)  {
+        if *point == *p1 || *point == *p2 || point_on_edge(*point, *p1, *p2)  {
             return true;
         }
 
@@ -210,24 +195,6 @@ fn point_on_edge(point: Vec2, edge_start: Vec2, edge_end: Vec2) -> bool {
         && point.x <= f32::max(edge_start.x, edge_end.x)
         && point.y >= f32::min(edge_start.y, edge_end.y)
         && point.y <= f32::max(edge_start.y, edge_end.y)
-}
-
-pub fn merge_faces(faces: Vec<Face>) -> Vec<Face> {
-    let mut final_faces = vec![];
-
-    for i in 0..faces.len() {
-
-        for j in 0..faces.len() {
-            if i == j {
-                continue;
-            }
-
-            let merged = faces[i].merge(&faces[j]);
-        }
-
-    }
-
-    final_faces
 }
 
 pub fn default_wedge(size: Vec3) -> Vec<Face> {

@@ -1,6 +1,6 @@
-use std::{time::SystemTime, ops::Neg, cell::RefCell};
+use std::{time::SystemTime, ops::Neg};
 
-use bevy::{prelude::*, reflect::Array, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
+use bevy::{prelude::*, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
 
@@ -95,47 +95,16 @@ impl<'a> BVHMeshGenerator<'a> {
     }
 
     pub fn gen_mesh(&self) -> Vec<Mesh> {
-        // let now = SystemTime::now();
-        // {
-        //     let mut face_map: HashMap<Face, (usize, usize, bool)> = HashMap::new();
-        //     for i in 0..self.save_data.bricks.len() {
-        //         if let Some(faces) = self.faces.borrow_mut()[i].0.as_mut() {
-        //             for j in 0..faces.len() {
-        //                 if face_map.contains_key(&faces[j]) {
-        //                     faces[j].hidden = true;
-        //                     let (_, _, hidden) = face_map.get_mut(&faces[j]).unwrap();
-        //                     *hidden = true;
-        //                 } else {
-        //                     face_map.insert(faces[j].clone(), (i, j, false));
-        //                 }
-        //             }
-        //         }
-        //     }
-
-        //     for (i, j, hidden) in face_map.values() {
-        //         if *hidden {
-        //             self.faces.borrow_mut()[*i].0.as_mut().unwrap()[*j].hidden = true;
-        //         }
-        //     }
-        // }
-        // info!("Initial culling took {} seconds", now.elapsed().unwrap().as_secs_f32());
-
         let mut hidden: HashSet<(usize, usize)> = HashSet::new();
 
         let now = SystemTime::now();
         for i in 0..self.save_data.bricks.len() {
-            if self.faces[i].len() == 0 {
+            if !&self.save_data.bricks[i].visibility || self.faces[i].len() == 0 {
                 continue;
             }
-
             let mut neighbors = vec![];
-            //let now = SystemTime::now();
             self.traverse_neighbors(&self.bvh, i, &mut neighbors);
-            //info!("Finding neighbors took {} usec", now.elapsed().unwrap().as_micros());
-            let now = SystemTime::now();
             self.cull_faces(i, neighbors, &mut hidden);
-            //info!("Culling took {} usec", now.elapsed().unwrap().as_micros());
-            //break;
         }
         info!("Culled faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
@@ -374,6 +343,10 @@ fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
             face.normal != Vec3::NEG_Y
         });
 
+        for face in &mut brick_faces {
+            face.calc_2d();
+        }
+
         facecount += brick_faces.len();
 
         data.push(brick_faces);
@@ -387,13 +360,10 @@ fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
 fn gen_aabbs(save_data: &SaveData) -> Vec<AABB> {
     let now = SystemTime::now();
     let mut aabbs = Vec::with_capacity(save_data.bricks.len());
-
     for brick in &save_data.bricks {
         aabbs.push(AABB::from_brick(brick, save_data));
     }
-
     info!("Generated AABBs in {} seconds", now.elapsed().unwrap().as_secs_f32());
-
     aabbs
 }
 

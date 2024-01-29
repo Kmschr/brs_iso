@@ -9,7 +9,7 @@ const CAMERA_DISTANCE: f32 = 100000.0;
 pub struct IsoCameraPlugin;
 
 #[derive(Component)]
-struct OrientationCube;
+struct MainCamera;
 
 impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
@@ -23,22 +23,25 @@ impl Plugin for IsoCameraPlugin {
 fn spawn_camera(
     mut commands: Commands,
 ) {
-    commands.spawn((Camera3dBundle {
-        projection: OrthographicProjection {
-            scale: DEFAULT_CAMERA_ZOOM,
-            scaling_mode: ScalingMode::FixedVertical(ISO_SCALING_MODE),
-            far: CAMERA_CLIP_DISTANCE,
+    commands.spawn((
+        MainCamera,
+        Camera3dBundle {
+            projection: OrthographicProjection {
+                scale: DEFAULT_CAMERA_ZOOM,
+                scaling_mode: ScalingMode::FixedVertical(ISO_SCALING_MODE),
+                far: CAMERA_CLIP_DISTANCE,
+                ..default()
+            }.into(),
+            transform: Transform::from_translation(Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE)),
             ..default()
-        }.into(),
-        transform: Transform::from_translation(Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE)),
-        ..default()
-    },
-    ClusterConfig::Single,
-    PanOrbitCamera::default(),
-    DepthPrepass,
-    MotionVectorPrepass,
-    DeferredPrepass,
-    Fxaa::default()));
+        },
+        ClusterConfig::Single,
+        PanOrbitCamera::default(),
+        DepthPrepass,
+        MotionVectorPrepass,
+        DeferredPrepass,
+        Fxaa::default(),
+)   );
 }
 
 fn screenshot_on_f2(

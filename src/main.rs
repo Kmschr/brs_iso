@@ -7,7 +7,6 @@ mod components;
 mod faces;
 mod pos;
 mod mat;
-mod octree;
 mod fps;
 mod lit;
 mod utils;
@@ -16,7 +15,6 @@ use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, 
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
 use bevy::{prelude::*, diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod};
-//use bevy_editor_pls::EditorPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::BVHNode;
 use cam::IsoCameraPlugin;
@@ -55,15 +53,14 @@ fn main() {
         .insert_resource(Msaa::Off)
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(BVHDepth::default())
-        .add_plugins((LightPlugin, AssetLoaderPlugin))
+        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
-        //.add_plugins(EditorPlugin::default())
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_save, spawn_chunks))
-        //.add_systems(Update, light_gizmos)
-        //.add_systems(Update, (bvh_gizmos, change_depth))
+        .add_systems(Update, (bvh_gizmos, change_depth))
         //.add_systems(Update, spotlight_gizmos)
+        //.add_systems(Update, light_gizmos)
         .run();
 }
 
@@ -108,37 +105,20 @@ fn load_save(
     let save_data = load_save_data(path);
     info!("Loaded {:?} bricks", &save_data.bricks.len());
 
-    // let point_lights = gen_point_lights(&save_data);
-    // info!("Spawning {} point lights", point_lights.len());
-    // for light in point_lights {
-    //     commands.spawn(light);
-    // }
+    let point_lights = gen_point_lights(&save_data);
+    info!("Spawning {} point lights", point_lights.len());
+    for light in point_lights {
+        commands.spawn(light);
+    }
 
-    // let spot_lights = gen_spot_lights(&save_data);
-    // info!("Spawning {} spot lights", spot_lights.len());
-    // for light in spot_lights {
-    //     commands.spawn(light);
-    // }
+    let spot_lights = gen_spot_lights(&save_data);
+    info!("Spawning {} spot lights", spot_lights.len());
+    for light in spot_lights {
+        commands.spawn(light);
+    }
 
     // todo: remove after meshes for most assets are generated
     info!("{:?}", &save_data.header2.brick_assets);
-
-    // commands.spawn(ChunkEntity {
-    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Plastic"),
-    //     material: scene_assets.plastic_material.clone()
-    // });
-    // commands.spawn(ChunkEntity {
-    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Glass"),
-    //     material: scene_assets.glass_material.clone()
-    // });
-    // commands.spawn(ChunkEntity {
-    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Glow"),
-    //     material: scene_assets.glow_material.clone()
-    // });
-    // commands.spawn(ChunkEntity {
-    //     meshes: tri::gen_save_mesh(&save_data, "BMC_Metallic"),
-    //     material: scene_assets.metal_material.clone()
-    // });
     
     let generator = BVHMeshGenerator::new(&save_data);
     let meshes = generator.gen_mesh();
@@ -210,7 +190,7 @@ fn default_build_directory() -> Option<PathBuf> {
     }
 }
 
-fn light_gizmos(
+fn _light_gizmos(
     mut gizmos: Gizmos,
     query: Query<(&PointLight, &Transform)>
 ) {
@@ -219,7 +199,7 @@ fn light_gizmos(
     }
 }
 
-fn spotlight_gizmos(
+fn _spotlight_gizmos(
     mut gizmos: Gizmos,
     query: Query<(&SpotLight, &Transform)>
 ) {
@@ -239,30 +219,32 @@ fn bvh_gizmos (
 }
 
 fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_depth: u8) {
-
     let color = match depth {
         0 => Color::WHITE,
         1 => Color::BLUE,
         2 => Color::GREEN,
         3 => Color::YELLOW,
+        4 => Color::MAROON,
+        5 => Color::GOLD,
+        6 => Color::VIOLET,
         _ => Color::WHITE,
     };
 
     match bvh {
         BVHNode::Internal { aabb, left, right } => {
-
             if depth == target_depth {
                 gizmos.cuboid(Transform {
                     translation: aabb.center.as_vec3(),
                     rotation: Quat::IDENTITY,
                     scale: aabb.halfwidths.as_vec3() * 2.0,
                 }, color);
+                return;
             }
 
             aabb_gizmos_recursive(&left, gizmos, depth + 1, target_depth);
             aabb_gizmos_recursive(&right, gizmos, depth + 1, target_depth);
         },
-        BVHNode::Leaf { i } => {}
+        _ => {}
     }
 }
 
