@@ -6,7 +6,6 @@ mod chat;
 mod components;
 mod faces;
 mod pos;
-mod mat;
 mod fps;
 mod lit;
 mod utils;
@@ -121,12 +120,25 @@ fn load_save(
     info!("{:?}", &save_data.header2.brick_assets);
     
     let generator = BVHMeshGenerator::new(&save_data);
-    let meshes = generator.gen_mesh();
+    let material_meshes = generator.gen_mesh();
 
-    commands.spawn(ChunkEntity {
-        meshes,
-        material: scene_assets.plastic_material.clone()
-    });
+    let mut i = 0;
+    for meshes in material_meshes.into_iter() {
+        let material = match i {
+            0 => scene_assets.plastic_material.clone(),
+            1 => scene_assets.glow_material.clone(),
+            2 => scene_assets.glass_material.clone(),
+            3 => scene_assets.metal_material.clone(),
+            _ => scene_assets.plastic_material.clone(),
+        };
+        commands.spawn(ChunkEntity {
+            meshes,
+            material,
+        });
+        i += 1;
+    }
+
+ 
 
     commands.spawn(SaveBVH {
         bvh: generator.bvh

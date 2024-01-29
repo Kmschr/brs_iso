@@ -34,9 +34,9 @@ fn load_assets(mut scene_assets: ResMut<SceneAssets>, asset_server: Res<AssetSer
             ..default()
         }),
         glass_material: materials.add(StandardMaterial {
-            base_color: Color::rgba(1.0, 1.0, 1.0, 0.9),
+            base_color: Color::rgb(0.7, 0.7, 0.7),
             perceptual_roughness: 0.8,
-            alpha_mode: AlphaMode::Premultiplied,
+           // alpha_mode: AlphaMode::Premultiplied,
             ..default()
         }),
         metal_material: materials.add(StandardMaterial {

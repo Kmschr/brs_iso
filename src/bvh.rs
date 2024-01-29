@@ -94,7 +94,7 @@ impl<'a> BVHMeshGenerator<'a> {
         }
     }
 
-    pub fn gen_mesh(&self) -> Vec<Mesh> {
+    pub fn gen_mesh(&self) -> Vec<Vec<Mesh>> {
         let mut hidden: HashSet<(usize, usize)> = HashSet::new();
 
         let now = SystemTime::now();
@@ -109,7 +109,25 @@ impl<'a> BVHMeshGenerator<'a> {
         info!("Culled faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
         let now = SystemTime::now();
-        let mut chunks: HashMap<IVec3, Buffers> = HashMap::new();
+        let mut material_chunks: Vec<HashMap<IVec3, Buffers>> = vec![
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+            HashMap::new(),
+        ];
+
+        let mut material_map: Vec<usize> = Vec::with_capacity(self.save_data.header2.materials.len());
+        for i in 0..self.save_data.header2.materials.len() {
+            let point = match self.save_data.header2.materials[i].as_str() {
+                "BMC_Plastic" => 0,
+                "BMC_Glow" => 1,
+                "BMC_Glass" => 2,
+                "BMC_Metallic" => 3,
+                _ => 0,
+            };
+            material_map.push(point);
+        }
+
         let mut final_faces = 0;
         for i in 0..self.save_data.bricks.len() {
             let brick_faces = &self.faces[i];
@@ -117,7 +135,10 @@ impl<'a> BVHMeshGenerator<'a> {
                 continue;
             }
 
+            let material = material_map[self.save_data.bricks[i].material_index as usize];
+
             let chunk_coordinates = self.aabbs[i].center / CHUNK_SIZE;
+            let chunks = &mut material_chunks[material];
             if !chunks.contains_key(&chunk_coordinates) {
                 chunks.insert(chunk_coordinates.clone(), Buffers::new());
             }
@@ -151,17 +172,29 @@ impl<'a> BVHMeshGenerator<'a> {
     
         info!("{} final faces", final_faces);
     
-        let mut meshes = Vec::with_capacity(chunks.len());
-        for (_, buffers) in chunks.into_iter() {
-            let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, buffers.position);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, buffers.color);
-            mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, buffers.normal);
-            meshes.push(mesh);
+        let mut material_meshes: Vec<Vec<Mesh>> = vec![
+            Vec::with_capacity(material_chunks[0].len()),
+            Vec::with_capacity(material_chunks[1].len()),
+            Vec::with_capacity(material_chunks[2].len()),
+            Vec::with_capacity(material_chunks[3].len()),
+        ];
+
+        let mut total_chunks = 0;
+        let mut i = 0;
+        for chunks in material_chunks.into_iter() {
+            for (_, buffers) in chunks.into_iter() {
+                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, buffers.position);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, buffers.color);
+                mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, buffers.normal);
+                material_meshes[i].push(mesh);
+                total_chunks += 1;
+            }
+            i += 1;
         }
 
-        info!("Generated {} mesh chunks in {} seconds", meshes.len(), now.elapsed().unwrap().as_secs_f32());
-        meshes
+        info!("Generated {} mesh chunks in {} seconds", total_chunks, now.elapsed().unwrap().as_secs_f32());
+        material_meshes
     }
 
     fn cull_faces(&self, target: usize, neighbors: Vec<usize>, hidden: &mut HashSet<(usize, usize)>) {
