@@ -26,4 +26,5 @@ version = "0.12"
 default-features = true
 features = [
     "wav",  # Audio: Uncompressed WAV
+    "dynamic_linking", # Dynamic linking for faster compile-times (remove before release)
 ]
