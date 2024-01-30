@@ -1,5 +1,7 @@
 use bevy::{prelude::*, pbr::{DirectionalLightShadowMap, CascadeShadowConfigBuilder}};
 
+use crate::state::{GameState, InputState};
+
 const SHADOW_MAP_SIZE: usize = 8192;
 const AMBIENT_BRIGHTNESS: f32 = 0.5;
 const SUN_ILLUMINANCE: f32 = 20000.0;
@@ -59,12 +61,20 @@ fn spawn_light(mut commands: Commands) {
 fn animate_light_direction(
     time: Res<Time>,
     mut query: Query<&mut Transform, With<DirectionalLight>>,
-    keycode: Res<Input<KeyCode>>
+    keycode: Res<Input<KeyCode>>,
+    game_state: Res<GameState>,
 ) {
+    match game_state.input {
+        InputState::Listen => {},
+        InputState::Typing => {
+            return;
+        }
+    }
+
     let mut dir = 0.0;
-    if keycode.pressed(KeyCode::A) {
+    if keycode.pressed(KeyCode::Left) {
         dir = 1.;
-    } else if keycode.pressed(KeyCode::D) {
+    } else if keycode.pressed(KeyCode::Right) {
         dir = -1.;
     }
 

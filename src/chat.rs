@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use bevy::{prelude::*, input::{keyboard::KeyboardInput, ButtonState}};
+use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
+
+use crate::state::{GameState, InputState};
 
 pub struct ChatPlugin;
 
@@ -21,26 +23,28 @@ impl Plugin for ChatPlugin {
                 half_second: Timer::new(Duration::from_millis(500), TimerMode::Repeating),
             })
             .add_systems(Startup, spawn_chat)
-            .add_systems(Update, (blink_cursor, keyboard_system));
+            .add_systems(Update, (blink_cursor, keyboard_system, enable_chat));
     }
 }
 
 fn spawn_chat(
     mut commands: Commands
 ) {
+    let mut chatbox = TextBundle::from_sections([
+        TextSection::new("", TextStyle::default()),
+        TextSection::new("", TextStyle::default()),
+        TextSection::new("", TextStyle::default())
+    ]).with_style(
+        Style {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(10.0),
+            left: Val::Px(15.0),
+            ..default()
+        }
+    );
+    chatbox.visibility = Visibility::Hidden;
     commands.spawn((
-        TextBundle::from_sections([
-            TextSection::new("", TextStyle::default()),
-            TextSection::new("", TextStyle::default()),
-            TextSection::new("", TextStyle::default())
-        ]).with_style(
-            Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(10.0),
-                left: Val::Px(15.0),
-                ..default()
-            }
-        ),
+        chatbox,
         Chat
     ));
 }
@@ -64,12 +68,43 @@ fn blink_cursor(
     }
 }
 
-fn keyboard_system(
-    mut query: Query<&mut Text, With<Chat>>,
-    keycode: Res<Input<KeyCode>>,
-    mut rd: EventReader<KeyboardInput>
+fn enable_chat(
+    mut query: Query<&mut Visibility, With<Chat>>,
+    mut game_state: ResMut<GameState>,
+    mut keycode: ResMut<Input<KeyCode>>,
 ) {
-    let mut text = query.get_single_mut().unwrap();
+    match game_state.input {
+        InputState::Listen => {
+            if !keycode.just_pressed(KeyCode::T) {
+                return;
+            }
+        },
+        InputState::Typing => {
+            return;
+        }
+    }
+
+    let mut visibility = query.get_single_mut().unwrap();
+    *visibility = Visibility::Visible;
+
+    game_state.input = InputState::Typing;
+    keycode.reset(KeyCode::T);
+}
+
+fn keyboard_system(
+    mut query: Query<(&mut Text, &mut Visibility), With<Chat>>,
+    keycode: Res<Input<KeyCode>>,
+    mut rd: EventReader<KeyboardInput>,
+    mut game_state: ResMut<GameState>,
+) {
+    match game_state.input {
+        InputState::Listen => {
+            return;
+        },
+        InputState::Typing => {}
+    }
+
+    let (mut text, mut visibility) = query.get_single_mut().unwrap();
 
     for ev in rd.read() {
         if ev.state != ButtonState::Pressed {
@@ -104,6 +139,12 @@ fn keyboard_system(
                 },
                 KeyCode::Period => {
                     text.sections[0].value.push('.');
+                },
+                KeyCode::Return => {
+                    text.sections[0].value = String::new();
+                    text.sections[2].value = String::new();
+                    game_state.input = InputState::Listen;
+                    *visibility = Visibility::Hidden;
                 },
                 _ => {
                     let mut key = format!("{:?}", key);

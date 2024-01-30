@@ -6,6 +6,7 @@ mod chat;
 mod components;
 mod faces;
 mod pos;
+mod state;
 mod fps;
 mod lit;
 mod utils;
@@ -20,6 +21,7 @@ use cam::IsoCameraPlugin;
 use chat::ChatPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
+use state::{BVHView, GameState, InputState};
 
 use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::BVHMeshGenerator};
 
@@ -34,11 +36,6 @@ struct SaveBVH {
     bvh: BVHNode,
 }
 
-#[derive(Resource, Default)]
-struct BVHDepth {
-    value: u8,
-}
-
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -51,7 +48,7 @@ fn main() {
         // Disable MSAA as it is incompatible with deferred rendering, use FXAA instead
         .insert_resource(Msaa::Off)
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
-        .insert_resource(BVHDepth::default())
+        .insert_resource(GameState::default())
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(IsoCameraPlugin)
@@ -74,6 +71,13 @@ fn setup(mut commands: Commands,
 fn pick_path(
     world: &mut World
 ) {
+    let game_state = world.resource::<GameState>();
+    match game_state.input {
+        InputState::Listen => {},
+        InputState::Typing => {
+            return;
+        }
+    }
     let keycode = world.resource::<Input<KeyCode>>();
     if keycode.just_pressed(KeyCode::L) {
         let (tx, rx) = mpsc::channel();
@@ -223,10 +227,15 @@ fn _spotlight_gizmos(
 fn bvh_gizmos (
     mut gizmos: Gizmos,
     query: Query<&SaveBVH>,
-    bvh_depth: Res<BVHDepth>
+    game_state: Res<GameState>
 ) {
     for save_bvh in &query {
-        aabb_gizmos_recursive(&save_bvh.bvh, &mut gizmos, 0, bvh_depth.value);
+        match game_state.bvh_view {
+            BVHView::On(depth) => {
+                aabb_gizmos_recursive(&save_bvh.bvh, &mut gizmos, 0, depth);
+            },
+            BVHView::Off => {}
+        }
     }
 }
 
@@ -262,12 +271,23 @@ fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_d
 
 fn change_depth(
     keycode: Res<Input<KeyCode>>,
-    mut bvh_depth: ResMut<BVHDepth>,
+    mut game_state: ResMut<GameState>,
 ) {
-    if keycode.just_pressed(KeyCode::W) {
-        bvh_depth.value += 1;
-    }
-    if keycode.just_pressed(KeyCode::S) {
-        bvh_depth.value -= 1;
+    match game_state.input {
+        InputState::Listen => {
+            match &mut game_state.bvh_view {
+                BVHView::On(depth) => {
+                    if keycode.just_pressed(KeyCode::W) {
+                        *depth += 1;
+                    }
+                    if keycode.just_pressed(KeyCode::S) {
+                        *depth -= 1;
+                    }
+                }
+                BVHView::Off => {}
+            }
+
+        },
+        InputState::Typing => {}
     }
 }
