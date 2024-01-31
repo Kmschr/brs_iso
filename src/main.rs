@@ -83,7 +83,7 @@ fn setup(
     commands.spawn((
         PbrBundle {
             mesh: meshes.add(Plane::from_size(1000000.).into()),
-            material: scene_assets.water_material.clone(),
+            material: scene_assets.materials.water.clone(),
             visibility: Visibility::Visible,
             ..default()
         },
@@ -177,11 +177,11 @@ fn load_save(
     let mut i = 0;
     for meshes in material_meshes.into_iter() {
         let material = match i {
-            0 => scene_assets.plastic_material.clone(),
-            1 => scene_assets.glow_material.clone(),
-            2 => scene_assets.glass_material.clone(),
-            3 => scene_assets.metal_material.clone(),
-            _ => scene_assets.plastic_material.clone(),
+            0 => scene_assets.materials.plastic.clone(),
+            1 => scene_assets.materials.glow.clone(),
+            2 => scene_assets.materials.glass.clone(),
+            3 => scene_assets.materials.metal.clone(),
+            _ => scene_assets.materials.plastic.clone(),
         };
         commands.spawn(ChunkEntity {
             meshes,
