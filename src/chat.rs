@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
 
-use crate::{components::Light, state::{GameState, InputState}, ChunkMesh};
+use crate::{asset_loader::SceneAssets, components::Light, state::{GameState, InputState}, ChunkMesh, SaveBVH};
 
 pub struct ChatPlugin;
 
@@ -71,11 +71,11 @@ fn blink_cursor(
 fn enable_chat(
     mut query: Query<&mut Visibility, With<Chat>>,
     mut game_state: ResMut<GameState>,
-    mut keycode: ResMut<Input<KeyCode>>,
+    mut keyboard: ResMut<Input<KeyCode>>,
 ) {
     match game_state.input {
         InputState::Listen => {
-            if !keycode.just_pressed(KeyCode::T) {
+            if !keyboard.just_pressed(KeyCode::T) {
                 return;
             }
         },
@@ -87,24 +87,26 @@ fn enable_chat(
     let mut visibility = query.get_single_mut().unwrap();
     *visibility = Visibility::Visible;
 
+    keyboard.reset(KeyCode::T);
     game_state.input = InputState::Typing;
-    keycode.reset(KeyCode::T);
 }
 
 fn keyboard_system(
-    mut query: Query<(&mut Text, &mut Visibility), With<Chat>>,
-    keycode: Res<Input<KeyCode>>,
+    mut text_query: Query<(&mut Text, &mut Visibility), With<Chat>>,
+    keyboard: Res<Input<KeyCode>>,
     mut rd: EventReader<KeyboardInput>,
     mut game_state: ResMut<GameState>,
-    mut commmands: Commands,
+    mut commands: Commands,
     mesh_query: Query<Entity, With<ChunkMesh>>,
     light_query: Query<Entity, With<Light>>,
+    bvh_query: Query<Entity, With<SaveBVH>>,
+    assets: Res<SceneAssets>,
 ) {
     if game_state.input_listening() {
         return;
     }
 
-    let (mut text, mut visibility) = query.get_single_mut().unwrap();
+    let (mut text, mut visibility) = text_query.get_single_mut().unwrap();
 
     for ev in rd.read() {
         if ev.state != ButtonState::Pressed {
@@ -144,12 +146,19 @@ fn keyboard_system(
                     let command = format!("{}{}", text.sections[0].value, text.sections[2].value);
 
                     match command.as_str() {
-                        "/clearbricks" => {
+                        "/clear" | "/clearbricks" | "/clearallbricks" => {
+                            commands.spawn(AudioBundle {
+                                source: assets.sounds.clear_bricks.clone(),
+                                ..default()
+                            }); 
                             for entity in mesh_query.iter() {
-                                commmands.entity(entity).despawn();
+                                commands.entity(entity).despawn();
                             }
                             for entity in light_query.iter() {
-                                commmands.entity(entity).despawn();
+                                commands.entity(entity).despawn();
+                            }
+                            for entity in bvh_query.iter() {
+                                commands.entity(entity).despawn();
                             }
                         },
                         _ => {}
@@ -166,7 +175,7 @@ fn keyboard_system(
                         continue;
                     }
     
-                    if !keycode.pressed(KeyCode::ShiftLeft) && !keycode.pressed(KeyCode::ShiftRight) {
+                    if !keyboard.pressed(KeyCode::ShiftLeft) && !keyboard.pressed(KeyCode::ShiftRight) {
                         key = key.to_lowercase();
                     };
                     text.sections[0].value.push_str(&key);

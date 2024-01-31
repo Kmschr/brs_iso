@@ -5,6 +5,7 @@ pub struct SceneAssets {
     pub diffuse_map: Handle<Image>,
     pub specular_map: Handle<Image>,
     pub materials: Materials,
+    pub sounds: Sounds,
 }
 
 #[derive(Default)]
@@ -18,7 +19,10 @@ pub struct Materials {
 
 #[derive(Default)]
 pub struct Sounds {
-    
+    pub startup: Handle<AudioSource>,
+    pub clear_bricks: Handle<AudioSource>,
+    pub upload_start: Handle<AudioSource>,
+    pub upload_end: Handle<AudioSource>,
 }
 
 pub struct AssetLoaderPlugin;
@@ -65,6 +69,12 @@ fn load_assets(mut scene_assets: ResMut<SceneAssets>, asset_server: Res<AssetSer
                 thickness: 2000.0,
                 ..default()
             }),
+        },
+        sounds: Sounds {
+            startup: asset_server.load("sounds/playerConnect.wav"),
+            clear_bricks: asset_server.load("sounds/brickClear.wav"),
+            upload_start: asset_server.load("sounds/uploadStart.wav"),
+            upload_end: asset_server.load("sounds/uploadEnd.wav"),
         }
     }
 }

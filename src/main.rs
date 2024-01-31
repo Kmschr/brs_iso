@@ -71,11 +71,10 @@ fn main() {
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    asset_server: Res<AssetServer>,
-    scene_assets: Res<SceneAssets>,
+    assets: Res<SceneAssets>,
 ) {
     commands.spawn(AudioBundle {
-        source: asset_server.load("sounds/playerConnect.wav"),
+        source: assets.sounds.startup.clone(),
         ..default()
     });
 
@@ -83,7 +82,7 @@ fn setup(
     commands.spawn((
         PbrBundle {
             mesh: meshes.add(Plane::from_size(1000000.).into()),
-            material: scene_assets.materials.water.clone(),
+            material: assets.materials.water.clone(),
             visibility: Visibility::Visible,
             ..default()
         },
@@ -138,7 +137,7 @@ fn pick_path(
 
 fn load_save(
     mut commands: Commands,
-    scene_assets: Res<SceneAssets>,
+    assets: Res<SceneAssets>,
     path_receiver: Option<NonSend<Receiver<PathBuf>>>,
 ) {
     if path_receiver.is_none() {
@@ -177,11 +176,11 @@ fn load_save(
     let mut i = 0;
     for meshes in material_meshes.into_iter() {
         let material = match i {
-            0 => scene_assets.materials.plastic.clone(),
-            1 => scene_assets.materials.glow.clone(),
-            2 => scene_assets.materials.glass.clone(),
-            3 => scene_assets.materials.metal.clone(),
-            _ => scene_assets.materials.plastic.clone(),
+            0 => assets.materials.plastic.clone(),
+            1 => assets.materials.glow.clone(),
+            2 => assets.materials.glass.clone(),
+            3 => assets.materials.metal.clone(),
+            _ => assets.materials.plastic.clone(),
         };
         commands.spawn(ChunkEntity {
             meshes,
@@ -189,11 +188,14 @@ fn load_save(
         });
         i += 1;
     }
-
- 
-
+    
     commands.spawn(SaveBVH {
         bvh: generator.bvh
+    });
+
+    commands.spawn(AudioBundle {
+        source: assets.sounds.upload_end.clone(),
+        ..default()
     });
 
 }
