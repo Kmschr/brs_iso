@@ -6,6 +6,15 @@ pub struct GameState {
     pub bvh_view: BVHView,
 }
 
+impl GameState {
+    pub fn input_listening(&self) -> bool {
+        match self.input {
+            InputState::Listen => true,
+            InputState::Typing => false,
+        }
+    }
+}
+
 #[derive(Default)]
 pub enum InputState {
     #[default]

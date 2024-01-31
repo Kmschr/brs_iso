@@ -14,7 +14,7 @@ mod utils;
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{prelude::*, diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::PresentMode};
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::BVHNode;
 use cam::IsoCameraPlugin;
@@ -23,7 +23,7 @@ use fps::FPSPlugin;
 use lit::LightPlugin;
 use state::{BVHView, GameState, InputState};
 
-use crate::{components::{gen_point_lights, gen_spot_lights}, bvh::BVHMeshGenerator};
+use crate::{components::{gen_point_lights, Light}, bvh::BVHMeshGenerator};
 
 #[derive(Component, Debug)]
 struct ChunkEntity {
@@ -36,11 +36,19 @@ struct SaveBVH {
     bvh: BVHNode,
 }
 
+
+#[derive(Component)]
+struct Water;
+
+#[derive(Component)]
+struct ChunkMesh;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Brickadia Isometric Viewer".into(),
+                present_mode: PresentMode::Immediate,
                 ..default()
             }),
             ..default()
@@ -53,19 +61,59 @@ fn main() {
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
-        .add_systems(Update, (pick_path, load_save, spawn_chunks))
+        .add_systems(Update, (pick_path, load_save, spawn_chunks, move_water))
         .add_systems(Update, (bvh_gizmos, change_depth))
         //.add_systems(Update, spotlight_gizmos)
         //.add_systems(Update, light_gizmos)
         .run();
 }
 
-fn setup(mut commands: Commands,
-         asset_server: Res<AssetServer>) {
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    asset_server: Res<AssetServer>,
+    scene_assets: Res<SceneAssets>,
+) {
     commands.spawn(AudioBundle {
         source: asset_server.load("sounds/playerConnect.wav"),
         ..default()
     });
+
+    // spawn water mesh
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Plane::from_size(1000000.).into()),
+            material: scene_assets.water_material.clone(),
+            visibility: Visibility::Visible,
+            ..default()
+        },
+        Water,
+    ));
+}
+
+fn move_water(
+    mut query: Query<&mut Transform, With<Water>>,
+    keycode: Res<Input<KeyCode>>,
+    game_state: Res<GameState>,
+    time: Res<Time>,
+) {
+    if !game_state.input_listening() {
+        return;
+    }
+
+    let mut movement = Vec3::ZERO;
+    if keycode.pressed(KeyCode::I) {
+        movement += Vec3::Y;
+    } else if keycode.pressed(KeyCode::K) {
+        movement += Vec3::NEG_Y;
+    }
+
+    if keycode.pressed(KeyCode::ShiftLeft) {
+        movement *= 5.0;
+    }
+
+    let mut transform = query.get_single_mut().unwrap();
+    transform.translation += movement * time.delta_seconds() * 100.0;
 }
 
 fn pick_path(
@@ -111,14 +159,14 @@ fn load_save(
     let point_lights = gen_point_lights(&save_data);
     info!("Spawning {} point lights", point_lights.len());
     for light in point_lights {
-        commands.spawn(light);
+        commands.spawn((light, Light));
     }
 
-    let spot_lights = gen_spot_lights(&save_data);
-    info!("Spawning {} spot lights", spot_lights.len());
-    for light in spot_lights {
-        commands.spawn(light);
-    }
+    // let spot_lights = gen_spot_lights(&save_data);
+    // info!("Spawning {} spot lights", spot_lights.len());
+    // for light in spot_lights {
+    //     commands.spawn((light, Light));
+    // }
 
     // todo: remove after meshes for most assets are generated
     info!("{:?}", &save_data.header2.brick_assets);
@@ -169,6 +217,7 @@ fn spawn_chunks(
                         material: chunk_entity.material.clone(),
                         ..default()
                     },
+                    ChunkMesh
                 ));
             }
         }

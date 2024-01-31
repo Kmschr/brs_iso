@@ -1,12 +1,12 @@
 use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, fxaa::Fxaa}, input::mouse::MouseWheel, pbr::ClusterConfig, prelude::*, render::{camera::ScalingMode, view::screenshot::ScreenshotManager}, window::PrimaryWindow};
 
-use crate::state::{GameState, InputState};
+use crate::state::GameState;
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
 const ISO_SCALING_MODE: f32 = 1.0;
 const CAMERA_CLIP_DISTANCE: f32 = 4000000.0;
 const CAMERA_DISTANCE: f32 = 100000.0;
-const ZOOM_SPEED: f32 = 18.0;
+const ZOOM_SPEED: f32 = 12.0;
 const MIN_ZOOM: f32 = 1.0;
 const MAX_ZOOM: f32 = 100000.0;
 
@@ -71,11 +71,8 @@ fn move_cam(
     mut query: Query<&mut Transform, With<MainCamera>>,
     time: Res<Time>,
 ) {
-    match game_state.input {
-        InputState::Listen => {},
-        InputState::Typing => {
-            return;
-        }
+    if !game_state.input_listening() {
+        return;
     }
 
     let mut movement = Vec3::ZERO;
@@ -91,8 +88,14 @@ fn move_cam(
         movement += Vec3::NEG_X;
     }
 
+    movement = movement.normalize_or_zero();
+
+    if input.pressed(KeyCode::ShiftLeft) {
+        movement *= 10.0;
+    }
+
     let mut transform = query.get_single_mut().unwrap();
-    transform.translation += movement * time.delta_seconds() * 200.0;
+    transform.translation += movement * time.delta_seconds() * 500.0;
 }
 
 fn zoom_cam(

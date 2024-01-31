@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
 
-use crate::state::{GameState, InputState};
+use crate::{components::Light, state::{GameState, InputState}, ChunkMesh};
 
 pub struct ChatPlugin;
 
@@ -96,12 +96,12 @@ fn keyboard_system(
     keycode: Res<Input<KeyCode>>,
     mut rd: EventReader<KeyboardInput>,
     mut game_state: ResMut<GameState>,
+    mut commmands: Commands,
+    mesh_query: Query<Entity, With<ChunkMesh>>,
+    light_query: Query<Entity, With<Light>>,
 ) {
-    match game_state.input {
-        InputState::Listen => {
-            return;
-        },
-        InputState::Typing => {}
+    if game_state.input_listening() {
+        return;
     }
 
     let (mut text, mut visibility) = query.get_single_mut().unwrap();
@@ -141,6 +141,20 @@ fn keyboard_system(
                     text.sections[0].value.push('.');
                 },
                 KeyCode::Return => {
+                    let command = format!("{}{}", text.sections[0].value, text.sections[2].value);
+
+                    match command.as_str() {
+                        "/clearbricks" => {
+                            for entity in mesh_query.iter() {
+                                commmands.entity(entity).despawn();
+                            }
+                            for entity in light_query.iter() {
+                                commmands.entity(entity).despawn();
+                            }
+                        },
+                        _ => {}
+                    }
+
                     text.sections[0].value = String::new();
                     text.sections[2].value = String::new();
                     game_state.input = InputState::Listen;
