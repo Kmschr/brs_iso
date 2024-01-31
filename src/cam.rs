@@ -1,4 +1,4 @@
-use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, fxaa::Fxaa}, input::mouse::MouseWheel, pbr::ClusterConfig, prelude::*, render::{camera::ScalingMode, view::screenshot::ScreenshotManager}, window::PrimaryWindow};
+use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, fxaa::Fxaa}, input::mouse::{MouseMotion, MouseWheel}, pbr::ClusterConfig, prelude::*, render::{camera::ScalingMode, view::screenshot::ScreenshotManager}, window::PrimaryWindow};
 
 use crate::state::GameState;
 
@@ -19,7 +19,7 @@ impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam))
+            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -65,10 +65,43 @@ fn screenshot_on_f2(
     }
 }
 
-fn move_cam(
-    input: Res<Input<KeyCode>>,
+fn move_cam_mouse(
+    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    projection_query: Query<&Projection>,
+    mut motion_evr: EventReader<MouseMotion>,
+    mouse: Res<Input<MouseButton>>,
+    time: Res<Time>,
+) {
+    if !mouse.pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    let projection = projection_query.get_single().unwrap();
+    let scale = match projection {
+        Projection::Orthographic(projection) => {
+            projection.scale
+        },
+        _ => { 1.0 }
+    };
+
+    let mut motion = Vec3::ZERO;
+
+    for ev in motion_evr.read() {
+        motion += Vec3::new(-ev.delta.x, 0.0, ev.delta.y);
+    }
+
+    let mut transform = cam_query.get_single_mut().unwrap();
+
+    let move_x = transform.local_x() * motion.x;
+    let move_z = transform.local_y() * motion.z;
+
+    transform.translation += (move_x + move_z) * time.delta_seconds() * 0.35 * scale;
+}
+
+fn move_cam_keyboard(
+    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    keyboard: Res<Input<KeyCode>>,
     game_state: Res<GameState>,
-    mut query: Query<&mut Transform, With<MainCamera>>,
     time: Res<Time>,
 ) {
     if !game_state.input_listening() {
@@ -77,24 +110,24 @@ fn move_cam(
 
     let mut movement = Vec3::ZERO;
 
-    if input.pressed(KeyCode::W) {
+    if keyboard.pressed(KeyCode::W) {
         movement += Vec3::NEG_Z;
-    } else if input.pressed(KeyCode::S) {
+    } else if keyboard.pressed(KeyCode::S) {
         movement += Vec3::Z;
     }
-    if input.pressed(KeyCode::D) {
+    if keyboard.pressed(KeyCode::D) {
         movement += Vec3::X;
-    } else if input.pressed(KeyCode::A) {
+    } else if keyboard.pressed(KeyCode::A) {
         movement += Vec3::NEG_X;
     }
 
     movement = movement.normalize_or_zero();
 
-    if input.pressed(KeyCode::ShiftLeft) {
+    if keyboard.pressed(KeyCode::ShiftLeft) {
         movement *= 10.0;
     }
 
-    let mut transform = query.get_single_mut().unwrap();
+    let mut transform = cam_query.get_single_mut().unwrap();
     transform.translation += movement * time.delta_seconds() * 500.0;
 }
 
