@@ -7,6 +7,7 @@ mod components;
 mod faces;
 mod pos;
 mod state;
+mod settings;
 mod fps;
 mod lit;
 mod utils;
@@ -14,16 +15,17 @@ mod utils;
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::PresentMode};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::{PresentMode, WindowResolution}};
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::BVHNode;
 use cam::IsoCameraPlugin;
 use chat::ChatPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
+use settings::SettingsPlugin;
 use state::{BVHView, GameState, InputState};
 
-use crate::{components::{gen_point_lights, Light}, bvh::BVHMeshGenerator};
+use crate::{components::{gen_point_lights, gen_spot_lights, Light}, bvh::BVHMeshGenerator};
 
 #[derive(Component, Debug)]
 struct ChunkEntity {
@@ -49,6 +51,12 @@ fn main() {
             primary_window: Some(Window {
                 title: "Brickadia Isometric Viewer".into(),
                 present_mode: PresentMode::Immediate,
+                resolution: WindowResolution::new(1600., 900.),
+                resize_constraints: WindowResizeConstraints {
+                    min_width: 854.,
+                    min_height: 480.,
+                    ..default()
+                },
                 ..default()
             }),
             ..default()
@@ -57,7 +65,7 @@ fn main() {
         .insert_resource(Msaa::Off)
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
-        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin))
+        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
@@ -83,7 +91,7 @@ fn setup(
         PbrBundle {
             mesh: meshes.add(Plane::from_size(1000000.).into()),
             material: assets.materials.water.clone(),
-            visibility: Visibility::Visible,
+            visibility: Visibility::Hidden,
             ..default()
         },
         Water,
@@ -161,11 +169,11 @@ fn load_save(
         commands.spawn((light, Light));
     }
 
-    // let spot_lights = gen_spot_lights(&save_data);
-    // info!("Spawning {} spot lights", spot_lights.len());
-    // for light in spot_lights {
-    //     commands.spawn((light, Light));
-    // }
+    let spot_lights = gen_spot_lights(&save_data);
+    info!("Spawning {} spot lights", spot_lights.len());
+    for light in spot_lights {
+        commands.spawn((light, Light));
+    }
 
     // todo: remove after meshes for most assets are generated
     info!("{:?}", &save_data.header2.brick_assets);
@@ -188,7 +196,7 @@ fn load_save(
         });
         i += 1;
     }
-    
+
     commands.spawn(SaveBVH {
         bvh: generator.bvh
     });

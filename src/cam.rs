@@ -3,7 +3,7 @@ use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, Deferred
 use crate::{bvh::BVHNode, state::GameState, SaveBVH};
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
-const ISO_SCALING_MODE: f32 = 1.0;
+const ISO_SCALING_MODE: f32 = 2.0;
 const CAMERA_CLIP_DISTANCE: f32 = 4000000.0;
 const CAMERA_DISTANCE: f32 = 100000.0;
 const ZOOM_SPEED: f32 = 12.0;
@@ -40,7 +40,6 @@ enum ViewType {
     BottomLeft,
     TopRight,
     TopLeft,
-    Custom
 }
 
 const NORMAL_BUTTON: Color = Color::rgba(0.25, 0.25, 0.25, 0.5);
@@ -278,9 +277,9 @@ fn move_cam_mouse(
     }
 
     let projection = projection_query.get_single().unwrap();
-    let (scale, area) = match projection {
+    let scale = match projection {
         Projection::Orthographic(projection) => {
-            (projection.scale, projection.area)
+            projection.scale
         },
         _ => { 
             return;
@@ -386,7 +385,6 @@ fn camera_buttons(
                         let new_transform = Transform::from_translation(translation);
                         *transform = new_transform.looking_at(target, Vec3::Y);
                     },
-                    _ => {}
                 }
 
 
