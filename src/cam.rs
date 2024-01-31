@@ -1,6 +1,6 @@
 use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, fxaa::Fxaa}, input::mouse::{MouseMotion, MouseWheel}, pbr::ClusterConfig, prelude::*, render::{camera::ScalingMode, view::screenshot::ScreenshotManager}, window::PrimaryWindow};
 
-use crate::state::GameState;
+use crate::{bvh::BVHNode, state::GameState, SaveBVH};
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
 const ISO_SCALING_MODE: f32 = 1.0;
@@ -15,11 +15,43 @@ pub struct IsoCameraPlugin;
 #[derive(Component)]
 struct MainCamera;
 
+#[derive(Component)]
+struct CamButton {
+    view: ViewType,
+}
+
+impl CamButton {
+    fn new(view: ViewType) -> Self {
+        Self {
+            view,
+        }
+    }
+}
+
+#[derive(Default)]
+enum ViewType {
+    Top,
+    Left,
+    Right,
+    Back,
+    Front,
+    #[default]
+    BottomRight,
+    BottomLeft,
+    TopRight,
+    TopLeft,
+    Custom
+}
+
+const NORMAL_BUTTON: Color = Color::rgba(0.25, 0.25, 0.25, 0.5);
+const HOVERED_BUTTON: Color = Color::rgba(0.35, 0.35, 0.35, 0.5);
+const PRESSED_BUTTON: Color = Color::rgb(0.45, 0.45, 0.45);
+
 impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse))
+            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -47,7 +79,176 @@ fn spawn_camera(
         MotionVectorPrepass,
         DeferredPrepass,
         Fxaa::default(),
-)   );
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(50.),
+                height: Val::Px(50.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                right: Val::Px(40.),
+                bottom: Val::Px(40.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::Top),
+    )).with_children(|parent| {
+        parent.spawn(TextBundle::from_section("View", TextStyle {
+            color: Color::BLACK,
+            ..default()
+        }));
+    });
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(20.),
+                height: Val::Px(50.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(20.),
+                bottom: Val::Px(40.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::Right),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(20.),
+                height: Val::Px(50.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(90.),
+                bottom: Val::Px(40.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::Left),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(50.),
+                height: Val::Px(20.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(40.),
+                bottom: Val::Px(20.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::Front),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(50.),
+                height: Val::Px(20.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(40.),
+                bottom: Val::Px(90.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::Back),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(20.),
+                height: Val::Px(20.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(20.),
+                bottom: Val::Px(20.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::BottomRight),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(20.),
+                height: Val::Px(20.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(20.),
+                bottom: Val::Px(90.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::TopRight),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(20.),
+                height: Val::Px(20.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(90.),
+                bottom: Val::Px(90.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::TopLeft),
+    ));
+
+    commands.spawn((
+        ButtonBundle {
+            style: Style {
+                width: Val::Px(20.),
+                height: Val::Px(20.),
+                border: UiRect::all(Val::Px(1.0)),
+                position_type: PositionType::Absolute,
+                right: Val::Px(90.),
+                bottom: Val::Px(20.),
+                ..default()
+            },
+            border_color: BorderColor(Color::BLACK),
+            background_color: BackgroundColor(NORMAL_BUTTON),
+            ..default()
+        },
+        CamButton::new(ViewType::BottomLeft),
+    ));
 }
 
 fn screenshot_on_f2(
@@ -77,25 +278,131 @@ fn move_cam_mouse(
     }
 
     let projection = projection_query.get_single().unwrap();
-    let scale = match projection {
+    let (scale, area) = match projection {
         Projection::Orthographic(projection) => {
-            projection.scale
+            (projection.scale, projection.area)
         },
-        _ => { 1.0 }
+        _ => { 
+            return;
+        }
     };
 
-    let mut motion = Vec3::ZERO;
+    let mut motion = Vec2::ZERO;
 
     for ev in motion_evr.read() {
-        motion += Vec3::new(-ev.delta.x, 0.0, ev.delta.y);
+        motion += Vec2::new(-ev.delta.x, ev.delta.y);
+    }
+
+    // filter out big jumps
+    if motion.length() > 20. {
+        return;
     }
 
     let mut transform = cam_query.get_single_mut().unwrap();
 
-    let move_x = transform.local_x() * motion.x;
-    let move_z = transform.local_y() * motion.z;
+    let mut forward = transform.local_y();
+    forward.y = 0.;
+    forward = forward.normalize();
 
-    transform.translation += (move_x + move_z) * time.delta_seconds() * 0.35 * scale;
+    let move_x = transform.local_x() * motion.x;
+    let move_z = forward * motion.y;
+
+    transform.translation += (move_x + move_z) * time.delta_seconds() * 0.6 * scale;
+}
+
+fn camera_buttons(
+    mut interaction_query: Query<
+        (
+            &Interaction,
+            &mut BackgroundColor,
+            &mut BorderColor,
+            &CamButton,
+        ),
+        (Changed<Interaction>, With<Button>),
+    >,
+    bvh_query: Query<&SaveBVH>,
+    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+) {
+    for (interaction, mut color, mut border_color, cam_button) in &mut interaction_query {
+        match *interaction {
+            Interaction::Pressed => {
+                let mut transform = cam_query.get_single_mut().unwrap();
+
+                let target = match bvh_query.get_single() {
+                    Ok(save_bvh) => {
+                        match save_bvh.bvh {
+                            BVHNode::Internal { aabb, left: _, right: _ } => {
+                                aabb.center.as_vec3()
+                            },
+                            _ => Vec3::ZERO
+                        }
+                    },
+                    _ => Vec3::ZERO,
+                };
+
+                match cam_button.view {
+                    ViewType::Top => {
+                        let translation = target + Vec3::new(0.0, CAMERA_DISTANCE, 0.0);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::NEG_Z);
+                    },
+                    ViewType::Front => {
+                        let translation = target + Vec3::new(0.0, 0.0, CAMERA_DISTANCE);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::Back => {
+                        let translation = target + Vec3::new(0.0, 0.0, -CAMERA_DISTANCE);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::Right => {
+                        let translation = target + Vec3::new(CAMERA_DISTANCE, 0.0, 0.0);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::Left => {
+                        let translation = target + Vec3::new(-CAMERA_DISTANCE, 0.0, 0.0);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::BottomRight => {
+                        let translation = target + Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::TopRight => {
+                        let translation = target + Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, -CAMERA_DISTANCE);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::TopLeft => {
+                        let translation = target + Vec3::new(-CAMERA_DISTANCE, CAMERA_DISTANCE, -CAMERA_DISTANCE);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    ViewType::BottomLeft => {
+                        let translation = target + Vec3::new(-CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE);
+                        let new_transform = Transform::from_translation(translation);
+                        *transform = new_transform.looking_at(target, Vec3::Y);
+                    },
+                    _ => {}
+                }
+
+
+                *color = PRESSED_BUTTON.into();
+                border_color.0 = Color::RED;
+            }
+            Interaction::Hovered => {
+                *color = HOVERED_BUTTON.into();
+                border_color.0 = Color::WHITE;
+            }
+            Interaction::None => {
+                *color = NORMAL_BUTTON.into();
+                border_color.0 = Color::BLACK;
+            }
+        }
+    }
 }
 
 fn move_cam_keyboard(
