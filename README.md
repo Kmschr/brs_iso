@@ -12,6 +12,7 @@ WASD - move camera (hold shift to speed up)
 Q/E - rotate camera (hold shift to speed up)
 Left/Right Arrow Keys - rotate sunlight
 F2 - take a screenshot
+H - teleport to center of build volume
 
 Press "/" to open command console:
 /clearbricks - clear all bricks/components
