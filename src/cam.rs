@@ -115,148 +115,33 @@ fn spawn_camera(
         }));
     });
 
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(20.),
-                height: Val::Px(50.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(20.),
-                bottom: Val::Px(40.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::Right),
-    ));
+    spawn_view_button(&mut commands, 20., 50., 20., 40., ViewType::Right);
+    spawn_view_button(&mut commands, 20., 50., 90., 40., ViewType::Left);
+    spawn_view_button(&mut commands, 50., 20., 40., 20., ViewType::Front);
+    spawn_view_button(&mut commands, 50., 20., 40., 90., ViewType::Back);
+    spawn_view_button(&mut commands, 20., 20., 20., 20., ViewType::BottomRight);
+    spawn_view_button(&mut commands, 20., 20., 20., 90., ViewType::TopRight);
+    spawn_view_button(&mut commands, 20., 20., 90., 90., ViewType::TopLeft);
+    spawn_view_button(&mut commands, 20., 20., 90., 20., ViewType::BottomLeft);
+}
 
+fn spawn_view_button(commands: &mut Commands, width: f32, height: f32, right: f32, bottom: f32, view_type: ViewType) {
     commands.spawn((
         ButtonBundle {
             style: Style {
-                width: Val::Px(20.),
-                height: Val::Px(50.),
+                width: Val::Px(width),
+                height: Val::Px(height),
                 border: UiRect::all(Val::Px(1.0)),
                 position_type: PositionType::Absolute,
-                right: Val::Px(90.),
-                bottom: Val::Px(40.),
+                right: Val::Px(right),
+                bottom: Val::Px(bottom),
                 ..default()
             },
             border_color: BorderColor(Color::BLACK),
             background_color: BackgroundColor(NORMAL_BUTTON),
             ..default()
         },
-        CamButton::new(ViewType::Left),
-    ));
-
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(50.),
-                height: Val::Px(20.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(40.),
-                bottom: Val::Px(20.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::Front),
-    ));
-
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(50.),
-                height: Val::Px(20.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(40.),
-                bottom: Val::Px(90.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::Back),
-    ));
-
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(20.),
-                height: Val::Px(20.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(20.),
-                bottom: Val::Px(20.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::BottomRight),
-    ));
-
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(20.),
-                height: Val::Px(20.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(20.),
-                bottom: Val::Px(90.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::TopRight),
-    ));
-
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(20.),
-                height: Val::Px(20.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(90.),
-                bottom: Val::Px(90.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::TopLeft),
-    ));
-
-    commands.spawn((
-        ButtonBundle {
-            style: Style {
-                width: Val::Px(20.),
-                height: Val::Px(20.),
-                border: UiRect::all(Val::Px(1.0)),
-                position_type: PositionType::Absolute,
-                right: Val::Px(90.),
-                bottom: Val::Px(20.),
-                ..default()
-            },
-            border_color: BorderColor(Color::BLACK),
-            background_color: BackgroundColor(NORMAL_BUTTON),
-            ..default()
-        },
-        CamButton::new(ViewType::BottomLeft),
+        CamButton::new(view_type),
     ));
 }
 
