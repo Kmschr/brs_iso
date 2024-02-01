@@ -16,6 +16,7 @@ use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, 
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
 use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::{PresentMode, WindowResolution}};
+use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::BVHNode;
 use cam::IsoCameraPlugin;
@@ -65,9 +66,9 @@ fn main() {
         .insert_resource(Msaa::Off)
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
-        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin))
+        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
-        .add_plugins(IsoCameraPlugin)
+        .add_plugins(EmbeddedAssetPlugin::default())
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
         .add_systems(Update, (bvh_gizmos, change_depth))

@@ -11,6 +11,7 @@ rfd = "0.13.0"
 dirs = "5.0"
 lazy_static = "1.4"
 bevy_editor_pls = "0.7"
+bevy_embedded_assets = "0.9"
 
 # Enable max optimizations for dependencies, but not for our code:
 [profile.dev.package."*"]
@@ -25,5 +26,5 @@ version = "0.12"
 default-features = true
 features = [
     "wav",  # Audio: Uncompressed WAV
-    "dynamic_linking", # Dynamic linking for faster compile-times (remove before release)
+    # "dynamic_linking", # Dynamic linking for faster compile-times (remove before release)
 ]
