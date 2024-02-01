@@ -358,24 +358,24 @@ fn jump_home(
 fn update_transform(
     mut query: Query<(&mut Transform, &mut IsoCamera), Changed<IsoCamera>>
 ) {
-    let (mut transform, mut cam) = query.get_single_mut().unwrap();
-
-    let rotate_z = Quat::from_axis_angle(Vec3::NEG_Z, cam.vertical_angle.to_radians());
-    let rotate_y = Quat::from_axis_angle(Vec3::Y, -cam.horizontal_angle.to_radians());
-    let rotation = rotate_y * rotate_z;
-
-    let translation = rotation.mul_vec3(CAM_Y) + cam.target;
-
-    let up = if cam.vertical_angle == 0.0 {
-        rotate_y.mul_vec3(Vec3::NEG_Z)
-    } else {
-        Vec3::Y
-    };
-
-    *transform = Transform::from_translation(translation).looking_at(cam.target, up);
-
-    if cam.horizontal_angle >= 360. || cam.horizontal_angle < -360. {
-        cam.horizontal_angle = 0.0;
+    for (mut transform, mut cam) in query.iter_mut() {
+        let rotate_z = Quat::from_axis_angle(Vec3::NEG_Z, cam.vertical_angle.to_radians());
+        let rotate_y = Quat::from_axis_angle(Vec3::Y, -cam.horizontal_angle.to_radians());
+        let rotation = rotate_y * rotate_z;
+    
+        let translation = rotation.mul_vec3(CAM_Y) + cam.target;
+    
+        let up = if cam.vertical_angle == 0.0 {
+            rotate_y.mul_vec3(Vec3::NEG_Z)
+        } else {
+            Vec3::Y
+        };
+    
+        *transform = Transform::from_translation(translation).looking_at(cam.target, up);
+    
+        if cam.horizontal_angle >= 360. || cam.horizontal_angle < -360. {
+            cam.horizontal_angle = 0.0;
+        }
     }
 }
 
