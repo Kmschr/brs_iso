@@ -162,7 +162,7 @@ fn keyboard_system(
                 },
                 KeyCode::Right => {
                     if !text.sections[3].value.is_empty() {
-                        let char = text.sections[2].value.remove(0);
+                        let char = text.sections[3].value.remove(0);
                         text.sections[1].value.push(char);
                     }
                 },

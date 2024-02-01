@@ -270,7 +270,6 @@ fn move_cam_mouse(
     projection_query: Query<&Projection>,
     mut motion_evr: EventReader<MouseMotion>,
     mouse: Res<Input<MouseButton>>,
-    time: Res<Time>,
 ) {
     if !mouse.pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Left) {
         return;
@@ -293,7 +292,7 @@ fn move_cam_mouse(
     }
 
     // filter out big jumps
-    if motion.length() > 20. {
+    if motion.length() > 100. {
         return;
     }
 
@@ -306,7 +305,7 @@ fn move_cam_mouse(
     let move_x = transform.local_x() * motion.x;
     let move_z = forward * motion.y;
 
-    transform.translation += (move_x + move_z) * time.delta_seconds() * 0.6 * scale;
+    transform.translation += (move_x + move_z) * 0.0015 * scale;
 }
 
 fn camera_buttons(
