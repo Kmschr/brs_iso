@@ -337,8 +337,9 @@ fn jump_home(
     mut query: Query<&mut IsoCamera>,
     bvh_query: Query<&SaveBVH>,
     keyboard: Res<Input<KeyCode>>,
+    game_state: Res<GameState>,
 ) {
-    if !keyboard.just_pressed(KeyCode::H) {
+    if !keyboard.just_pressed(KeyCode::H) || !game_state.input_listening() {
         return;
     }
 
@@ -382,8 +383,13 @@ fn update_transform(
 fn rotate_keyboard(
     mut query: Query<&mut IsoCamera>,
     keyboard: Res<Input<KeyCode>>,
+    game_state: Res<GameState>,
     time: Res<Time>,
 ) {
+    if !game_state.input_listening() {
+        return;
+    }
+
     let mut delta: f32 = 0.0;
     if keyboard.pressed(KeyCode::Q) {
         delta += 1.0;
