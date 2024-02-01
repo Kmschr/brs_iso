@@ -33,11 +33,14 @@ impl Plugin for AssetLoaderPlugin {
     }
 }
 
-fn load_assets(mut scene_assets: ResMut<SceneAssets>, asset_server: Res<AssetServer>, 
-               mut materials: ResMut<Assets<StandardMaterial>>) {
+fn load_assets(
+    mut scene_assets: ResMut<SceneAssets>, 
+    asset_server: Res<AssetServer>, 
+    mut materials: ResMut<Assets<StandardMaterial>>) 
+{
     *scene_assets = SceneAssets {
-        diffuse_map: asset_server.load("environment_maps/pisa_diffuse_rgb9e5_zstd.ktx2"),
-        specular_map: asset_server.load("environment_maps/pisa_specular_rgb9e5_zstd.ktx2"),
+        diffuse_map: asset_server.load("embedded://environment_maps/pisa_diffuse_rgb9e5_zstd.ktx2"),
+        specular_map: asset_server.load("embedded://environment_maps/pisa_specular_rgb9e5_zstd.ktx2"),
         materials: Materials {
             plastic: materials.add(StandardMaterial {
                 base_color: Color::rgb(0.7, 0.7, 0.7),
@@ -71,10 +74,10 @@ fn load_assets(mut scene_assets: ResMut<SceneAssets>, asset_server: Res<AssetSer
             }),
         },
         sounds: Sounds {
-            startup: asset_server.load("sounds/playerConnect.wav"),
-            clear_bricks: asset_server.load("sounds/brickClear.wav"),
-            upload_start: asset_server.load("sounds/uploadStart.wav"),
-            upload_end: asset_server.load("sounds/uploadEnd.wav"),
+            startup: asset_server.load("embedded://sounds/playerConnect.wav"),
+            clear_bricks: asset_server.load("embedded://sounds/brickClear.wav"),
+            upload_start: asset_server.load("embedded://sounds/uploadStart.wav"),
+            upload_end: asset_server.load("embedded://sounds/uploadEnd.wav"),
         }
     }
 }

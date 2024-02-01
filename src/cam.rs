@@ -298,12 +298,8 @@ fn move_cam_mouse(
 
     let mut transform = cam_query.get_single_mut().unwrap();
 
-    let mut forward = transform.local_y();
-    forward.y = 0.;
-    forward = forward.normalize();
-
     let move_x = transform.local_x() * motion.x;
-    let move_z = forward * motion.y;
+    let move_z = transform.local_y() * motion.y;
 
     transform.translation += (move_x + move_z) * 0.0015 * scale;
 }
