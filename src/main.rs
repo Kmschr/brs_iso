@@ -44,6 +44,9 @@ struct SaveBVH {
 struct Water;
 
 #[derive(Component)]
+struct Ground;
+
+#[derive(Component)]
 struct ChunkMesh;
 
 fn main() {
@@ -96,6 +99,17 @@ fn setup(
             ..default()
         },
         Water,
+    ));
+
+    // spawn ground plane
+    commands.spawn((
+        PbrBundle {
+            mesh: meshes.add(Plane::from_size(1000000.).into()),
+            material: assets.materials.ground.clone(),
+            visibility: Visibility::Hidden,
+            ..default()
+        },
+        Ground,
     ));
 }
 

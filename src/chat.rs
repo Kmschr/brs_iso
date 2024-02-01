@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
 
-use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, GameState, InputState}, ChunkMesh, SaveBVH, Water};
+use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, GameState, InputState}, ChunkMesh, Ground, SaveBVH, Water};
 
 pub struct ChatPlugin;
 
@@ -134,6 +134,7 @@ fn keyboard_system(
     mut light_query: Query<(Entity, &mut Visibility), (With<Light>, Without<Water>, Without<Console>)>,
     bvh_query: Query<Entity, With<SaveBVH>>,
     mut water_query: Query<&mut Visibility, (With<Water>, Without<Console>)>,
+    mut ground_query: Query<&mut Visibility, (With<Ground>, Without<Console>, Without<Water>, Without<Light>)>,
     mut sun_query: Query<&mut DirectionalLight, With<Sun>>,
     assets: Res<SceneAssets>,
 ) {
@@ -198,6 +199,18 @@ fn keyboard_system(
                         },
                         "/water" => {
                             let mut visibility = water_query.get_single_mut().unwrap();
+                            match *visibility {
+                                Visibility::Hidden => {
+                                    *visibility = Visibility::Visible;
+                                },
+                                Visibility::Visible => {
+                                    *visibility = Visibility::Hidden;
+                                },
+                                _ => {}
+                            }
+                        },
+                        "/ground" => {
+                            let mut visibility = ground_query.get_single_mut().unwrap();
                             match *visibility {
                                 Visibility::Hidden => {
                                     *visibility = Visibility::Visible;

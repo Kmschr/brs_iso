@@ -15,6 +15,7 @@ pub struct Materials {
     pub glass: Handle<StandardMaterial>,
     pub metal: Handle<StandardMaterial>,
     pub water: Handle<StandardMaterial>,
+    pub ground: Handle<StandardMaterial>,
 }
 
 #[derive(Default)]
@@ -70,6 +71,11 @@ fn load_assets(
                 ior: 1.33,
                 reflectance: 0.25,
                 thickness: 2000.0,
+                ..default()
+            }),
+            ground: materials.add(StandardMaterial {
+                base_color: Color::rgb(0.05, 0.25, 0.0),
+                perceptual_roughness: 0.8,
                 ..default()
             }),
         },
