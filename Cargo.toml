@@ -10,7 +10,6 @@ brickadia = "0.1"
 rfd = "0.13.0"
 dirs = "5.0"
 lazy_static = "1.4"
-bevy_panorbit_camera = "0.10"
 bevy_editor_pls = "0.7"
 
 # Enable max optimizations for dependencies, but not for our code:
@@ -26,4 +25,5 @@ version = "0.12"
 default-features = true
 features = [
     "wav",  # Audio: Uncompressed WAV
+    "dynamic_linking", # Dynamic linking for faster compile-times (remove before release)
 ]

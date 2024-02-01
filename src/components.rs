@@ -1,9 +1,12 @@
 use bevy::prelude::*;
 use brickadia::save::{UnrealType, SaveData, BrickColor};
 
-use crate::tri::cc;
+use crate::utils::cc;
 
 const BRIGHTNESS_MULTIPLIER: f32 = 20000.0;
+
+#[derive(Component)]
+pub struct Light;
 
 pub fn gen_point_lights(save_data: &SaveData) -> Vec<PointLightBundle> {
     if !save_data.components.contains_key("BCD_PointLight") {
