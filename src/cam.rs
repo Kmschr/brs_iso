@@ -4,16 +4,22 @@ use crate::{bvh::BVHNode, state::GameState, SaveBVH};
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
 const ISO_SCALING_MODE: f32 = 2.0;
-const CAMERA_CLIP_DISTANCE: f32 = 4000000.0;
-const CAMERA_DISTANCE: f32 = 100000.0;
+const CAM_CLIP_DIST: f32 = 4000000.0;
+const CAM_DIST: f32 = 100000.0;
 const ZOOM_SPEED: f32 = 12.0;
 const MIN_ZOOM: f32 = 1.0;
 const MAX_ZOOM: f32 = 100000.0;
 
+const CAM_Y: Vec3 = Vec3::new(0.0, CAM_DIST, 0.0);
+
 pub struct IsoCameraPlugin;
 
-#[derive(Component)]
-struct MainCamera;
+#[derive(Component, Default)]
+struct IsoCamera {
+    target: Vec3,
+    horizontal_angle: f32,
+    vertical_angle: f32,
+}
 
 #[derive(Component)]
 struct CamButton {
@@ -50,7 +56,7 @@ impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons))
+            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons, jump_home, update_transform, rotate_keyboard))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -58,16 +64,20 @@ impl Plugin for IsoCameraPlugin {
 fn spawn_camera(
     mut commands: Commands,
 ) {
-    let default_translation = Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE);
+    let default_translation = Vec3::new(CAM_DIST, CAM_DIST, CAM_DIST);
     let default_transform = Transform::from_translation(default_translation).looking_at(Vec3::ZERO, Vec3::Y);
 
     commands.spawn((
-        MainCamera,
+        IsoCamera {
+            horizontal_angle: 45.0,
+            vertical_angle: 45.0,
+            ..default()
+        },
         Camera3dBundle {
             projection: OrthographicProjection {
                 scale: DEFAULT_CAMERA_ZOOM,
                 scaling_mode: ScalingMode::FixedVertical(ISO_SCALING_MODE),
-                far: CAMERA_CLIP_DISTANCE,
+                far: CAM_CLIP_DIST,
                 ..default()
             }.into(),
             transform: default_transform,
@@ -266,7 +276,7 @@ fn screenshot_on_f2(
 }
 
 fn move_cam_mouse(
-    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    mut cam_query: Query<(&Transform, &mut IsoCamera)>,
     projection_query: Query<&Projection>,
     mut motion_evr: EventReader<MouseMotion>,
     mouse: Res<Input<MouseButton>>,
@@ -296,12 +306,12 @@ fn move_cam_mouse(
         return;
     }
 
-    let mut transform = cam_query.get_single_mut().unwrap();
+    let (transform, mut cam) = cam_query.get_single_mut().unwrap();
 
     let move_x = transform.local_x() * motion.x;
     let move_z = transform.local_y() * motion.y;
 
-    transform.translation += (move_x + move_z) * 0.0015 * scale;
+    cam.target += (move_x + move_z) * 0.0015 * scale;
 }
 
 fn camera_buttons(
@@ -314,74 +324,44 @@ fn camera_buttons(
         ),
         (Changed<Interaction>, With<Button>),
     >,
-    bvh_query: Query<&SaveBVH>,
-    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    mut cam_query: Query<&mut IsoCamera>,
 ) {
     for (interaction, mut color, mut border_color, cam_button) in &mut interaction_query {
         match *interaction {
             Interaction::Pressed => {
-                let mut transform = cam_query.get_single_mut().unwrap();
-
-                let target = match bvh_query.get_single() {
-                    Ok(save_bvh) => {
-                        match save_bvh.bvh {
-                            BVHNode::Internal { aabb, left: _, right: _ } => {
-                                aabb.center.as_vec3()
-                            },
-                            _ => Vec3::ZERO
-                        }
-                    },
-                    _ => Vec3::ZERO,
-                };
-
-                match cam_button.view {
+                let (horizontal_angle, vertical_angle) = match cam_button.view {
                     ViewType::Top => {
-                        let translation = target + Vec3::new(0.0, CAMERA_DISTANCE, 0.0);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::NEG_Z);
+                        (0.0, 0.0)
                     },
                     ViewType::Front => {
-                        let translation = target + Vec3::new(0.0, 0.0, CAMERA_DISTANCE);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (90.0, 90.0)
                     },
                     ViewType::Back => {
-                        let translation = target + Vec3::new(0.0, 0.0, -CAMERA_DISTANCE);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (270.0, 90.0)
                     },
                     ViewType::Right => {
-                        let translation = target + Vec3::new(CAMERA_DISTANCE, 0.0, 0.0);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (0.0, 90.0)
                     },
                     ViewType::Left => {
-                        let translation = target + Vec3::new(-CAMERA_DISTANCE, 0.0, 0.0);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (180.0, 90.0)
                     },
                     ViewType::BottomRight => {
-                        let translation = target + Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (45.0, 45.0)
                     },
                     ViewType::TopRight => {
-                        let translation = target + Vec3::new(CAMERA_DISTANCE, CAMERA_DISTANCE, -CAMERA_DISTANCE);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (315.0, 45.0)
                     },
                     ViewType::TopLeft => {
-                        let translation = target + Vec3::new(-CAMERA_DISTANCE, CAMERA_DISTANCE, -CAMERA_DISTANCE);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (225.0, 45.0)
                     },
                     ViewType::BottomLeft => {
-                        let translation = target + Vec3::new(-CAMERA_DISTANCE, CAMERA_DISTANCE, CAMERA_DISTANCE);
-                        let new_transform = Transform::from_translation(translation);
-                        *transform = new_transform.looking_at(target, Vec3::Y);
+                        (135.0, 45.0)
                     },
-                }
+                };
 
+                let mut cam = cam_query.get_single_mut().unwrap();
+                cam.horizontal_angle = horizontal_angle;
+                cam.vertical_angle = vertical_angle;
 
                 *color = PRESSED_BUTTON.into();
                 border_color.0 = Color::RED;
@@ -399,7 +379,7 @@ fn camera_buttons(
 }
 
 fn move_cam_keyboard(
-    mut cam_query: Query<&mut Transform, With<MainCamera>>,
+    mut cam_query: Query<&mut IsoCamera>,
     keyboard: Res<Input<KeyCode>>,
     game_state: Res<GameState>,
     time: Res<Time>,
@@ -427,8 +407,9 @@ fn move_cam_keyboard(
         movement *= 10.0;
     }
 
-    let mut transform = cam_query.get_single_mut().unwrap();
-    transform.translation += movement * time.delta_seconds() * 500.0;
+    let mut main_cam = cam_query.get_single_mut().unwrap();
+    let delta = movement * time.delta_seconds() * 500.0;
+    main_cam.target += delta;
 }
 
 fn zoom_cam(
@@ -465,4 +446,74 @@ fn zoom_cam(
             _ => {}
         }
     }
+}
+
+fn jump_home(
+    mut query: Query<&mut IsoCamera>,
+    bvh_query: Query<&SaveBVH>,
+    keyboard: Res<Input<KeyCode>>,
+) {
+    if !keyboard.just_pressed(KeyCode::H) {
+        return;
+    }
+
+    let mut cam = query.get_single_mut().unwrap();
+    let bvh = match bvh_query.get_single().unwrap().bvh {
+        BVHNode::Internal { aabb, left: _, right: _ } => {
+            aabb
+        },
+        _ => {
+            return;
+        }
+    };
+    cam.target = bvh.center.as_vec3();
+}
+
+// Process changes to camera target
+fn update_transform(
+    mut query: Query<(&mut Transform, &mut IsoCamera), Changed<IsoCamera>>
+) {
+    let (mut transform, mut cam) = query.get_single_mut().unwrap();
+
+    let rotate_z = Quat::from_axis_angle(Vec3::NEG_Z, cam.vertical_angle.to_radians());
+    let rotate_y = Quat::from_axis_angle(Vec3::Y, -cam.horizontal_angle.to_radians());
+    let rotation = rotate_y * rotate_z;
+
+    let translation = rotation.mul_vec3(CAM_Y) + cam.target;
+
+    let up = if cam.vertical_angle == 0.0 {
+        rotate_y.mul_vec3(Vec3::NEG_Z)
+    } else {
+        Vec3::Y
+    };
+
+    *transform = Transform::from_translation(translation).looking_at(cam.target, up);
+
+    if cam.horizontal_angle >= 360. || cam.horizontal_angle < -360. {
+        cam.horizontal_angle = 0.0;
+    }
+}
+
+fn rotate_keyboard(
+    mut query: Query<&mut IsoCamera>,
+    keyboard: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    let mut delta: f32 = 0.0;
+    if keyboard.pressed(KeyCode::Q) {
+        delta += 1.0;
+    } 
+    if keyboard.pressed(KeyCode::E) {
+        delta -= 1.0;
+    }
+    if keyboard.pressed(KeyCode::ShiftLeft) {
+        delta *= 10.0;
+    }
+
+    if delta.abs() < f32::EPSILON {
+        return;
+    }
+
+    let mut cam = query.get_single_mut().unwrap();
+    cam.horizontal_angle += delta * time.delta_seconds() * 20.0;
 }
