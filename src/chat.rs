@@ -103,12 +103,11 @@ fn blink_cursor(
 fn enable_chat(
     mut query: Query<&mut Visibility, With<Console>>,
     mut game_state: ResMut<GameState>,
-    mut keyboard: ResMut<Input<KeyCode>>,
-    mut rd: EventReader<KeyboardInput>,
+    keyboard: ResMut<Input<KeyCode>>,
 ) {
     match game_state.input {
         InputState::Listen => {
-            if !keyboard.just_pressed(KeyCode::T) {
+            if !keyboard.just_pressed(KeyCode::Slash) {
                 return;
             }
         },
@@ -121,8 +120,6 @@ fn enable_chat(
         *visibility = Visibility::Visible;
     }    
 
-    keyboard.reset(KeyCode::T);
-    rd.clear();
     game_state.input = InputState::Typing;
 }
 
@@ -141,7 +138,6 @@ fn keyboard_system(
     assets: Res<SceneAssets>,
 ) {
     if game_state.input_listening() || game_state.is_changed() {
-        rd.clear();
         return;
     }
 
