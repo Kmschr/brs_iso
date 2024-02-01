@@ -69,10 +69,10 @@ fn main() {
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(IsoCameraPlugin)
         .add_systems(PostStartup, setup)
-        .add_systems(Update, (pick_path, load_save, spawn_chunks, move_water))
+        .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
         .add_systems(Update, (bvh_gizmos, change_depth))
-        //.add_systems(Update, spotlight_gizmos)
-        //.add_systems(Update, light_gizmos)
+        .add_systems(Update, spotlight_gizmos)
+        .add_systems(Update, light_gizmos)
         .run();
 }
 
@@ -143,24 +143,48 @@ fn pick_path(
     }
 }
 
+fn load_brs(
+    world: &mut World
+) {
+    let path_receiver = world.get_non_send_resource::<Receiver<PathBuf>>();
+    if let Some(path_receiver) = path_receiver {
+        let path = path_receiver.try_recv();
+        if path.is_err() {
+            return;
+        }
+
+        let assets = world.resource::<SceneAssets>();
+        world.spawn(AudioBundle {
+            source: assets.sounds.upload_start.clone(),
+            ..default()
+        });
+
+        let path = path.unwrap();
+        let (tx, rx) = mpsc::channel();
+        world.insert_non_send_resource(rx);
+        thread::spawn(move || {
+            let save_data = load_save_data(path);
+            tx.send(save_data).unwrap();
+        });
+    }
+}
+
 fn load_save(
     mut commands: Commands,
     assets: Res<SceneAssets>,
-    path_receiver: Option<NonSend<Receiver<PathBuf>>>,
+    save_receiver: Option<NonSend<Receiver<SaveData>>>,
 ) {
-    if path_receiver.is_none() {
+    if save_receiver.is_none() {
         return;
     }
 
-    let path_receiver = path_receiver.unwrap();
-    let path = path_receiver.try_recv();
-    if path.is_err() {
+    let save_receiver = save_receiver.unwrap();
+    let save_data = save_receiver.try_recv();
+    if save_data.is_err() {
         return;
     }
 
-    let path = path.unwrap();
-
-    let save_data = load_save_data(path);
+    let save_data = save_data.unwrap();
     info!("Loaded {:?} bricks", &save_data.bricks.len());
 
     let point_lights = gen_point_lights(&save_data);
@@ -265,19 +289,29 @@ fn default_build_directory() -> Option<PathBuf> {
     }
 }
 
-fn _light_gizmos(
+fn light_gizmos(
     mut gizmos: Gizmos,
-    query: Query<(&PointLight, &Transform)>
+    query: Query<(&PointLight, &Transform)>,
+    game_state: Res<GameState>,
 ) {
+    if !game_state.light_debug {
+        return;
+    }
+
     for (light, transform) in &query {
         gizmos.sphere(transform.translation, transform.rotation, light.radius, light.color);
     }
 }
 
-fn _spotlight_gizmos(
+fn spotlight_gizmos(
     mut gizmos: Gizmos,
-    query: Query<(&SpotLight, &Transform)>
+    query: Query<(&SpotLight, &Transform)>,
+    game_state: Res<GameState>,
 ) {
+    if !game_state.light_debug {
+        return;
+    }
+
     for (light, transform) in &query {
         gizmos.line(transform.translation, transform.translation + transform.forward() * light.radius, light.color);
     }

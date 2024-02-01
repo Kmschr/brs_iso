@@ -8,6 +8,9 @@ const SUN_ILLUMINANCE: f32 = 20000.0;
 
 pub struct LightPlugin;
 
+#[derive(Component)]
+pub struct Sun;
+
 impl Plugin for LightPlugin {
     fn build(&self, app: &mut App) {
         app
@@ -27,21 +30,24 @@ fn spawn_light(mut commands: Commands) {
     shadow_light_transform.rotate_y(0.303);
     shadow_light_transform.rotate_z(0.508);
 
-    commands.spawn(DirectionalLightBundle {
-        directional_light: DirectionalLight {
-            shadows_enabled: true,
-            illuminance: SUN_ILLUMINANCE,
+    commands.spawn((
+        DirectionalLightBundle {
+            directional_light: DirectionalLight {
+                shadows_enabled: true,
+                illuminance: SUN_ILLUMINANCE,
+                ..default()
+            },
+            cascade_shadow_config: CascadeShadowConfigBuilder {
+                num_cascades: 1,
+                maximum_distance: 500000.0,
+                first_cascade_far_bound: 1000.0,
+                ..default()
+            }.into(),
+            transform: shadow_light_transform,
             ..default()
         },
-        cascade_shadow_config: CascadeShadowConfigBuilder {
-            num_cascades: 1,
-            maximum_distance: 500000.0,
-            first_cascade_far_bound: 1000.0,
-            ..default()
-        }.into(),
-        transform: shadow_light_transform,
-        ..default()
-    });
+        Sun
+    ));
 
     let mut light_transform = Transform::from_rotation(Quat::from_rotation_x(-1.460));
     light_transform.rotate_y(-0.566);

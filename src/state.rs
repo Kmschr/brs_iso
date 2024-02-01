@@ -4,6 +4,7 @@ use bevy::prelude::*;
 pub struct GameState {
     pub input: InputState,
     pub bvh_view: BVHView,
+    pub light_debug: bool,
 }
 
 impl GameState {

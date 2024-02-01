@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
 
-use crate::{asset_loader::SceneAssets, components::Light, state::{BVHView, GameState, InputState}, ChunkMesh, SaveBVH, Water};
+use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, GameState, InputState}, ChunkMesh, SaveBVH, Water};
 
 pub struct ChatPlugin;
 
@@ -62,16 +62,23 @@ fn spawn_chat(
                     ..default()
                 },
                 text: Text::from_sections([
-                    TextSection::new(">", TextStyle::default()),
-                    TextSection::new("", TextStyle::default()),
-                    TextSection::new("", TextStyle::default()),
-                    TextSection::new("", TextStyle::default())
+                    TextSection::new(">", text_style()),
+                    TextSection::new("", text_style()),
+                    TextSection::new("", text_style()),
+                    TextSection::new("", text_style())
                 ]),
                 ..default()
             },
             Chat
         ));
     });
+}
+
+fn text_style() -> TextStyle {
+    TextStyle {
+        font_size: 14.,
+        ..default()
+    }
 }
 
 fn blink_cursor(
@@ -127,9 +134,10 @@ fn keyboard_system(
     mut game_state: ResMut<GameState>,
     mut commands: Commands,
     mesh_query: Query<Entity, With<ChunkMesh>>,
-    light_query: Query<Entity, With<Light>>,
+    mut light_query: Query<(Entity, &mut Visibility), (With<Light>, Without<Water>, Without<Console>)>,
     bvh_query: Query<Entity, With<SaveBVH>>,
     mut water_query: Query<&mut Visibility, (With<Water>, Without<Console>)>,
+    mut sun_query: Query<&mut DirectionalLight, With<Sun>>,
     assets: Res<SceneAssets>,
 ) {
     if game_state.input_listening() || game_state.is_changed() {
@@ -185,7 +193,7 @@ fn keyboard_system(
                             for entity in mesh_query.iter() {
                                 commands.entity(entity).despawn();
                             }
-                            for entity in light_query.iter() {
+                            for (entity, _) in light_query.iter() {
                                 commands.entity(entity).despawn();
                             }
                             for entity in bvh_query.iter() {
@@ -215,8 +223,25 @@ fn keyboard_system(
                             }
                         },
                         "/shadows" => {
-
+                            let mut sun = sun_query.get_single_mut().unwrap();
+                            sun.shadows_enabled = !sun.shadows_enabled;
                         },
+                        "/lights" => {
+                            for (_, mut visibility) in light_query.iter_mut() {
+                                match *visibility {
+                                    Visibility::Hidden => {
+                                        *visibility = Visibility::Visible;
+                                    },
+                                    Visibility::Visible => {
+                                        *visibility = Visibility::Hidden;
+                                    },
+                                    _ => {}
+                                }
+                            }
+                        },
+                        "/debuglights" | "/lightdebug" => {
+                            game_state.light_debug = !game_state.light_debug;
+                        }
                         _ => {}
                     }
 
