@@ -344,6 +344,7 @@ fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
             Size::Procedural(w, l, h) => Vec3::new(w as f32, h as f32, l as f32),
             Size::Empty => {
                 if !BRICK_SIZE_MAP.contains_key(brick_asset.as_str()) {
+                    data.push(Vec::new());
                     continue;
                 }
                 let (w, l, h) = BRICK_SIZE_MAP[brick_asset.as_str()];
