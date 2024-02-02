@@ -150,6 +150,14 @@ fn keyboard_system(
         }
         if let Some(key) = ev.key_code {
             match key {
+                KeyCode::Escape => {
+                    game_state.input = InputState::Listen;
+                    for mut visibility in console_query.iter_mut() {
+                        *visibility = Visibility::Hidden;
+                    }
+                    text.sections[1].value = String::new();
+                    text.sections[3].value = String::new();
+                },
                 KeyCode::Back => {
                     text.sections[1].value.pop();
                 },
