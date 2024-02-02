@@ -56,7 +56,7 @@ impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons, jump_home, update_transform, rotate_keyboard))
+            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons, jump_home, update_transform, rotate_keyboard, rotate_mouse))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -374,6 +374,8 @@ fn update_transform(
         if cam.horizontal_angle >= 360. || cam.horizontal_angle < -360. {
             cam.horizontal_angle = 0.0;
         }
+
+        cam.vertical_angle = cam.vertical_angle.clamp(0.0, 90.0);
     }
 }
 
@@ -404,4 +406,32 @@ fn rotate_keyboard(
 
     let mut cam = query.get_single_mut().unwrap();
     cam.horizontal_angle += delta * time.delta_seconds() * 20.0;
+}
+
+fn rotate_mouse(
+    mut query: Query<&mut IsoCamera>,
+    mut motion_evr: EventReader<MouseMotion>,
+    mouse: Res<Input<MouseButton>>,
+) {
+    if !mouse.pressed(MouseButton::Right) {
+        return;
+    }
+
+    let mut motion = Vec2::ZERO;
+
+    for ev in motion_evr.read() {
+        motion += Vec2::new(ev.delta.x, -ev.delta.y);
+    }
+
+    // filter out big jumps
+    if motion.length() > 100. {
+        return;
+    }
+
+    for mut cam in query.iter_mut() {
+        cam.vertical_angle += motion.y * 0.1;
+        cam.horizontal_angle += motion.x * 0.1;
+
+        cam.vertical_angle = cam.vertical_angle.clamp(0.0, 90.0);
+    }
 }
