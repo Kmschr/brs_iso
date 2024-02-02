@@ -5,6 +5,7 @@ mod cam;
 mod chat;
 mod components;
 mod faces;
+mod icon;
 mod pos;
 mod state;
 mod settings;
@@ -15,7 +16,7 @@ mod utils;
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::{PresentMode, WindowResolution}};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::WindowResolution, winit::WinitWindows};
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::BVHNode;
@@ -25,6 +26,7 @@ use fps::FPSPlugin;
 use lit::LightPlugin;
 use settings::SettingsPlugin;
 use state::{BVHView, GameState, InputState};
+use winit::window::Icon;
 
 use crate::{components::{gen_point_lights, gen_spot_lights, Light}, bvh::BVHMeshGenerator};
 
@@ -73,6 +75,7 @@ fn main() {
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(EmbeddedAssetPlugin::default())
+        .add_systems(Startup, set_window_icon)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
         .add_systems(Update, (bvh_gizmos, change_depth))
@@ -112,6 +115,17 @@ fn setup(
         },
         Ground,
     ));
+}
+
+fn set_window_icon(
+    windows: NonSend<WinitWindows>,
+) {
+    let rgba = icon::ICON.to_vec();
+    let icon = Icon::from_rgba(rgba, 32, 32).unwrap();
+
+    for window in windows.windows.values() {
+        window.set_window_icon(Some(icon.clone()));
+    }
 }
 
 fn move_water(
