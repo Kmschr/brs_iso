@@ -1,6 +1,6 @@
 use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, fxaa::Fxaa}, input::mouse::{MouseMotion, MouseWheel}, pbr::ClusterConfig, prelude::*, render::{camera::ScalingMode, view::screenshot::ScreenshotManager}, window::PrimaryWindow};
 
-use crate::{bvh::BVHNode, state::GameState, SaveBVH};
+use crate::{state::GameState, SaveBVH};
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
 const ISO_SCALING_MODE: f32 = 2.0;
@@ -15,10 +15,10 @@ const CAM_Y: Vec3 = Vec3::new(0.0, CAM_DIST, 0.0);
 pub struct IsoCameraPlugin;
 
 #[derive(Component, Default)]
-struct IsoCamera {
-    target: Vec3,
-    horizontal_angle: f32,
-    vertical_angle: f32,
+pub struct IsoCamera {
+    pub target: Vec3,
+    pub horizontal_angle: f32,
+    pub vertical_angle: f32,
 }
 
 #[derive(Component)]
@@ -343,16 +343,13 @@ fn jump_home(
         return;
     }
 
-    let mut cam = query.get_single_mut().unwrap();
-    let bvh = match bvh_query.get_single().unwrap().bvh {
-        BVHNode::Internal { aabb, left: _, right: _ } => {
-            aabb
-        },
-        _ => {
-            return;
+    if let Ok(mut cam) = query.get_single_mut() {
+        if let Some(bvh) = bvh_query.iter().last() {
+            cam.target = bvh.com;
+        } else {
+            cam.target = Vec3::ZERO;
         }
-    };
-    cam.target = bvh.center.as_vec3();
+    }
 }
 
 // Process changes to camera target

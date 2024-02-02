@@ -1,6 +1,6 @@
 use std::{time::SystemTime, ops::Neg};
 
-use bevy::{prelude::*, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
+use bevy::{math::I64Vec3, prelude::*, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
 
@@ -195,6 +195,12 @@ impl<'a> BVHMeshGenerator<'a> {
 
         info!("Generated {} mesh chunks in {} seconds", total_chunks, now.elapsed().unwrap().as_secs_f32());
         material_meshes
+    }
+
+    pub fn center_of_mass(&self) -> Vec3 {
+        let total_mass: i64 = self.aabbs.iter().map(|aabb| aabb.volume()).sum();
+        let weighted_sum = self.aabbs.iter().map(|aabb| aabb.center.as_i64vec3() * aabb.volume()).fold(I64Vec3::ZERO, |acc, val| acc + val);
+        (weighted_sum / total_mass).as_vec3()
     }
 
     fn cull_faces(&self, target: usize, neighbors: Vec<usize>, hidden: &mut HashSet<(usize, usize)>) {

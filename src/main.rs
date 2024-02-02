@@ -19,7 +19,7 @@ use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMet
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::BVHNode;
-use cam::IsoCameraPlugin;
+use cam::{IsoCamera, IsoCameraPlugin};
 use chat::ChatPlugin;
 use fps::FPSPlugin;
 use lit::LightPlugin;
@@ -37,6 +37,7 @@ struct ChunkEntity {
 #[derive(Component)]
 struct SaveBVH {
     bvh: BVHNode,
+    com: Vec3
 }
 
 
@@ -131,11 +132,11 @@ fn move_water(
     }
 
     if keycode.pressed(KeyCode::ShiftLeft) {
-        movement *= 5.0;
+        movement *= 10.0;
     }
 
     let mut transform = query.get_single_mut().unwrap();
-    transform.translation += movement * time.delta_seconds() * 100.0;
+    transform.translation += movement * time.delta_seconds() * 50.0;
 }
 
 fn pick_path(
@@ -186,6 +187,7 @@ fn load_brs(
 
 fn load_save(
     mut commands: Commands,
+    mut cam_query: Query<&mut IsoCamera>,
     assets: Res<SceneAssets>,
     save_receiver: Option<NonSend<Receiver<SaveData>>>,
 ) {
@@ -219,6 +221,11 @@ fn load_save(
     
     let generator = BVHMeshGenerator::new(&save_data);
     let material_meshes = generator.gen_mesh();
+    let com = generator.center_of_mass();
+
+    if let Ok(mut cam) = cam_query.get_single_mut() {
+        cam.target = com;
+    }
 
     let mut i = 0;
     for meshes in material_meshes.into_iter() {
@@ -237,7 +244,8 @@ fn load_save(
     }
 
     commands.spawn(SaveBVH {
-        bvh: generator.bvh
+        bvh: generator.bvh,
+        com,
     });
 
     commands.spawn(AudioBundle {

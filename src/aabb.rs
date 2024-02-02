@@ -36,4 +36,8 @@ impl AABB {
         true
     }
 
+    pub fn volume(&self) -> i64 {
+        let size = self.halfwidths * 2;
+        size.x as i64 * size.y as i64 * size.z as i64
+    }
 }
