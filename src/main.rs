@@ -150,7 +150,7 @@ fn pick_path(
         }
     }
     let keycode = world.resource::<Input<KeyCode>>();
-    if keycode.just_pressed(KeyCode::L) {
+    if keycode.just_pressed(KeyCode::L) || keycode.just_pressed(KeyCode::O) {
         let (tx, rx) = mpsc::channel();
         world.insert_non_send_resource(rx);
         thread::spawn(move || {
