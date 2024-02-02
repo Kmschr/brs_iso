@@ -72,6 +72,7 @@ fn main() {
         .insert_resource(Msaa::Off)
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
+        .insert_resource(GlobalVolume::new(0.2))
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(EmbeddedAssetPlugin::default())
