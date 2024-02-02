@@ -55,7 +55,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Brickadia Isometric Viewer".into(),
-                present_mode: PresentMode::Immediate,
+                // present_mode: PresentMode::Immediate,
                 resolution: WindowResolution::new(1600., 900.),
                 resize_constraints: WindowResizeConstraints {
                     min_width: 854.,
