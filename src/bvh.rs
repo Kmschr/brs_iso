@@ -316,11 +316,11 @@ fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB
 
     // cut based on longest axis
     if aabb.halfwidths.x > aabb.halfwidths.y && aabb.halfwidths.x > aabb.halfwidths.z {
-        indices.sort_by_key(|i| aabbs[*i].center.x);
+        indices.sort_unstable_by_key(|i| aabbs[*i].center.x);
     } else if aabb.halfwidths.y > aabb.halfwidths.x && aabb.halfwidths.y > aabb.halfwidths.z {
-        indices.sort_by_key(|i| aabbs[*i].center.y);
+        indices.sort_unstable_by_key(|i| aabbs[*i].center.y);
     } else {
-        indices.sort_by_key(|i| aabbs[*i].center.z);
+        indices.sort_unstable_by_key(|i| aabbs[*i].center.z);
     }
     
     (indices.len() / 2, aabb)
