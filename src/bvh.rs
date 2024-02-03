@@ -96,17 +96,21 @@ impl<'a> BVHMeshGenerator<'a> {
     }
 
     pub fn gen_mesh(&self) -> Vec<Vec<Mesh>> {
-        let mut hidden: HashSet<(usize, usize)> = HashSet::new();
-
         let now = SystemTime::now();
-        for i in 0..self.save_data.bricks.len() {
-            if !&self.save_data.bricks[i].visibility || self.faces[i].len() == 0 {
-                continue;
-            }
-            let mut neighbors = vec![];
-            self.traverse_neighbors(&self.bvh, i, &mut neighbors);
-            self.cull_faces(i, neighbors, &mut hidden);
-        }
+        let hidden: Vec<(usize, usize)> = self.save_data.bricks.par_iter().enumerate()
+            .filter_map(|(i, _)| {
+                if !&self.save_data.bricks[i].visibility || self.faces[i].len() == 0 {
+                    None
+                } else {
+                    let mut neighbors = vec![];
+                    self.traverse_neighbors(&self.bvh, i, &mut neighbors);
+                    Some(self.cull_faces(i, neighbors))
+                }
+            })
+            .flatten()
+            .collect();
+        // convert vec to hashset for faster lookup
+        let hidden: HashSet<(usize, usize)> = hidden.into_iter().collect();
         info!("Culled faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
         let now = SystemTime::now();
@@ -204,7 +208,8 @@ impl<'a> BVHMeshGenerator<'a> {
         (weighted_sum / total_mass).as_vec3()
     }
 
-    fn cull_faces(&self, target: usize, neighbors: Vec<usize>, hidden: &mut HashSet<(usize, usize)>) {
+    fn cull_faces(&self, target: usize, neighbors: Vec<usize>) -> Vec<(usize, usize)> {
+        let mut hidden: Vec<(usize, usize)> = Vec::new();
         let mut neighbor_faces: HashMap<IVec3, Vec<(usize, usize)>> = HashMap::new();
         for i in neighbors {
             for j in 0..self.faces[i].len() {
@@ -216,10 +221,6 @@ impl<'a> BVHMeshGenerator<'a> {
 
         for j in 0..self.faces[target].len() {
             let face = &self.faces[target][j];
-            if hidden.contains(&(target, j)) {
-                continue;
-            }
-
             let int_normal = (face.normal * 100.0).as_ivec3().neg();
             let opposite_faces = &neighbor_faces.get(&int_normal);
             if opposite_faces.is_none() {
@@ -229,11 +230,13 @@ impl<'a> BVHMeshGenerator<'a> {
             for (other_i, other_j) in coplanar_faces {
                 let other = &self.faces[*other_i][*other_j];
                 if face.inside(other) {
-                    hidden.insert((target, j));
+                    hidden.push((target, j));
                     break;
                 }
             }
         }
+
+        hidden
     }
     
 
