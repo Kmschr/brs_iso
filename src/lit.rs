@@ -38,7 +38,7 @@ fn spawn_light(mut commands: Commands) {
                 ..default()
             },
             cascade_shadow_config: CascadeShadowConfigBuilder {
-                num_cascades: 1,
+                num_cascades: 4,
                 maximum_distance: 500000.0,
                 first_cascade_far_bound: 1000.0,
                 ..default()

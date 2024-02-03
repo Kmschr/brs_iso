@@ -23,6 +23,28 @@ impl AABB {
         }
     }
 
+    pub fn from_aabbs(aabbs: &[&AABB]) -> Self {
+        let mut min = IVec3::new(i32::MAX, i32::MAX, i32::MAX);
+        let mut max = IVec3::new(i32::MIN, i32::MIN, i32::MIN);
+        for aabb in aabbs {
+            min = min.min(aabb.center - aabb.halfwidths);
+            max = max.max(aabb.center + aabb.halfwidths);
+        }
+        let size: IVec3 = max - min;
+        if size.x % 2 == 0 {
+            max.x += 1;
+        }
+        if size.y % 2 == 0 {
+            max.y += 1;
+        }
+        if size.z % 2 == 0 {
+            max.z += 1;
+        }
+        let center = (min + max) / 2;
+        let halfwidths = (max - min) / 2;
+        Self { center, halfwidths }
+    }
+
     pub fn intersects(&self, other: &AABB) -> bool {
         if (self.center.x - other.center.x).abs() > (self.halfwidths.x + other.halfwidths.x) {
             return false;

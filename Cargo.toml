@@ -13,6 +13,7 @@ lazy_static = "1.4"
 bevy_editor_pls = "0.7"
 bevy_embedded_assets = "0.9"
 winit = "0.28"
+rayon = "1.5.1"
 
 # Enable max optimizations for dependencies, but not for our code:
 [profile.dev.package."*"]

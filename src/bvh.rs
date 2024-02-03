@@ -1,6 +1,7 @@
-use std::{time::SystemTime, ops::Neg};
+use std::{ops::Neg, time::SystemTime};
 
 use bevy::{math::I64Vec3, prelude::*, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
+use rayon::prelude::*;
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
 
@@ -209,11 +210,7 @@ impl<'a> BVHMeshGenerator<'a> {
             for j in 0..self.faces[i].len() {
                 let face = &self.faces[i][j];
                 let int_normal = (face.normal * 100.0).as_ivec3();
-                if neighbor_faces.contains_key(&int_normal) {
-                    neighbor_faces.get_mut(&int_normal).unwrap().push((i, j));
-                } else {
-                    neighbor_faces.insert(int_normal, vec![(i, j)]);
-                }
+                neighbor_faces.entry(int_normal).or_insert_with(Vec::new).push((i, j));
             }
         }
 
@@ -273,10 +270,16 @@ fn top_down_bv_tree(mut indices: Vec<usize>, save_data: &SaveData, aabbs: &Vec<A
         let right_bricks = indices.drain(k..).collect();
         let left_bricks = indices;
 
-        let left = Box::new(top_down_bv_tree(left_bricks, save_data, aabbs));
-        let right = Box::new(top_down_bv_tree(right_bricks, save_data, aabbs));
+        let (left, right) = rayon::join(
+            || top_down_bv_tree(left_bricks, save_data, aabbs),
+            || top_down_bv_tree(right_bricks, save_data, aabbs),
+        );
 
-        BVHNode::Internal { aabb, left, right }
+        BVHNode::Internal {
+            aabb,
+            left: Box::new(left),
+            right: Box::new(right),
+        }
     }
 }
 
@@ -329,70 +332,65 @@ fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB
 
 fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
     let now = SystemTime::now();
-    let mut facecount = 0;
     let mut data = Vec::with_capacity(save_data.bricks.len());
-    for i in 0..save_data.bricks.len() {
-        let brick = &save_data.bricks[i];
 
-        if !brick.visibility {
-            data.push(Vec::new());
-            continue;
-        }
+    data.par_extend(save_data.bricks.par_iter().map(|brick| {
+        let mut brick_faces = Vec::new();
 
-        let brick_asset = &save_data.header2.brick_assets[brick.asset_name_index as usize];
-        let size = match brick.size {
-            Size::Procedural(w, l, h) => Vec3::new(w as f32, h as f32, l as f32),
-            Size::Empty => {
-                if !BRICK_SIZE_MAP.contains_key(brick_asset.as_str()) {
-                    data.push(Vec::new());
-                    continue;
+        if brick.visibility {
+            let brick_asset = &save_data.header2.brick_assets[brick.asset_name_index as usize];
+            let size = match brick.size {
+                Size::Procedural(w, l, h) => Vec3::new(w as f32, h as f32, l as f32),
+                Size::Empty => {
+                    if let Some(&(w, l, h)) = BRICK_SIZE_MAP.get(brick_asset.as_str()) {
+                        Vec3::new(w as f32, h as f32, l as f32)
+                    } else {
+                        return brick_faces;
+                    }
                 }
-                let (w, l, h) = BRICK_SIZE_MAP[brick_asset.as_str()];
-                Vec3::new(w as f32, h as f32, l as f32)
-            }
-        };
+            };
 
-        let mut brick_faces = match brick_asset.as_str() {
-            "PB_DefaultWedge" => default_wedge(size),
-            "PB_DefaultRampInnerCorner" => ramp_inner_corner(size),
-            "PB_DefaultRampCrest" => ramp_crest(size),
-            "PB_DefaultRampCorner" => ramp_corner(size),
-            "PB_DefaultMicroWedgeInnerCorner" => microwedge_inner_corner(size),
-            "PB_DefaultMicroWedgeCorner" => microwedge_corner(size),
-            "PB_DefaultMicroWedgeHalfOuterCorner" => microwedge_half_outer_corner(size),
-            "PB_DefaultMicroWedgeHalfInnerCornerInverted" => microwedge_half_inner_corner_inverted(size),
-            "PB_DefaultMicroWedgeHalfInnerCorner" => microwedge_half_inner_corner(size),
-            "PB_DefaultMicroWedgeOuterCorner" => microwedge_outer_corner(size),
-            "PB_DefaultMicroWedgeTriangleCorner" => microwedge_triangle_corner(size),
-            "PB_DefaultRamp" => ramp(size),
-            "PB_DefaultMicroWedge" | "PB_DefaultSideWedgeTile" | "PB_DefaultSideWedge" => side_wedge(size),
-            _ => standard_brick(size)
-        };
+            brick_faces = match brick_asset.as_str() {
+                "PB_DefaultWedge" => default_wedge(size),
+                "PB_DefaultRampInnerCorner" => ramp_inner_corner(size),
+                "PB_DefaultRampCrest" => ramp_crest(size),
+                "PB_DefaultRampCorner" => ramp_corner(size),
+                "PB_DefaultMicroWedgeInnerCorner" => microwedge_inner_corner(size),
+                "PB_DefaultMicroWedgeCorner" => microwedge_corner(size),
+                "PB_DefaultMicroWedgeHalfOuterCorner" => microwedge_half_outer_corner(size),
+                "PB_DefaultMicroWedgeHalfInnerCornerInverted" => microwedge_half_inner_corner_inverted(size),
+                "PB_DefaultMicroWedgeHalfInnerCorner" => microwedge_half_inner_corner(size),
+                "PB_DefaultMicroWedgeOuterCorner" => microwedge_outer_corner(size),
+                "PB_DefaultMicroWedgeTriangleCorner" => microwedge_triangle_corner(size),
+                "PB_DefaultRamp" => ramp(size),
+                "PB_DefaultMicroWedge" | "PB_DefaultSideWedgeTile" | "PB_DefaultSideWedge" => side_wedge(size),
+                _ => standard_brick(size)
+            };
 
-        for face in &mut brick_faces {
-            for vert in &mut face.verts {
-                *vert = ORIENTATION_MAP[d2o(brick.direction as u8, brick.rotation as u8) as usize]
-                        .mul_vec3(*vert);
-                *vert = *vert + brick_pos(brick);
+            let brick_position = brick_pos(brick);
+            for face in &mut brick_faces {
+                for vert in &mut face.verts {
+                    *vert = ORIENTATION_MAP[d2o(brick.direction as u8, brick.rotation as u8) as usize]
+                            .mul_vec3(*vert);
+                    *vert = *vert + brick_position;
+                }
+                face.calc_normal();
             }
-            face.calc_normal();
+
+            // cull downward faces
+            brick_faces.retain(|face| {
+                face.normal != Vec3::NEG_Y
+            });
+            // precalculate projection onto its normal plane
+            for face in &mut brick_faces {
+                face.calc_2d();
+            }
         }
 
-        // cull downward faces
-        brick_faces.retain(|face| {
-            face.normal != Vec3::NEG_Y
-        });
+        brick_faces
+    }));
 
-        for face in &mut brick_faces {
-            face.calc_2d();
-        }
-
-        facecount += brick_faces.len();
-
-        data.push(brick_faces);
-    }
-
-    info!("Generated {} faces in {} seconds", facecount, now.elapsed().unwrap().as_secs_f32());
+    info!("Generated faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
     data
 }
