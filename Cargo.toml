@@ -7,13 +7,14 @@ edition = "2021"
 
 [dependencies]
 brickadia = "0.1"
-rfd = "0.13.0"
+rfd = "0.13"
 dirs = "5.0"
 lazy_static = "1.4"
 bevy_editor_pls = "0.7"
 bevy_embedded_assets = "0.9"
 winit = "0.28"
-rayon = "1.5.1"
+rayon = "1.5"
+bevy_egui = "0.24"
 
 # Enable max optimizations for dependencies, but not for our code:
 [profile.dev.package."*"]

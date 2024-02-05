@@ -1,6 +1,6 @@
 use bevy::{core_pipeline::{prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, fxaa::Fxaa}, input::mouse::{MouseMotion, MouseWheel}, pbr::ClusterConfig, prelude::*, render::{camera::ScalingMode, view::screenshot::ScreenshotManager}, window::PrimaryWindow};
 
-use crate::{state::GameState, SaveBVH};
+use crate::{bvh::BVHNode, state::GameState, SaveBVH};
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
 const ISO_SCALING_MODE: f32 = 2.0;
@@ -9,8 +9,6 @@ const CAM_DIST: f32 = 100000.0;
 const ZOOM_SPEED: f32 = 12.0;
 const MIN_ZOOM: f32 = 1.0;
 const MAX_ZOOM: f32 = 100000.0;
-
-const CAM_Y: Vec3 = Vec3::new(0.0, CAM_DIST, 0.0);
 
 pub struct IsoCameraPlugin;
 
@@ -354,14 +352,30 @@ fn jump_home(
 
 // Process changes to camera target
 fn update_transform(
-    mut query: Query<(&mut Transform, &mut IsoCamera), Changed<IsoCamera>>
+    mut query: Query<(&mut Transform, &mut IsoCamera), Changed<IsoCamera>>,
+    bvh_query: Query<&SaveBVH>,
 ) {
     for (mut transform, mut cam) in query.iter_mut() {
         let rotate_z = Quat::from_axis_angle(Vec3::NEG_Z, cam.vertical_angle.to_radians());
         let rotate_y = Quat::from_axis_angle(Vec3::Y, -cam.horizontal_angle.to_radians());
         let rotation = rotate_y * rotate_z;
+
+        let mut max_dist = 0.0;
+        for save_bvh in bvh_query.iter() {
+            let root = &save_bvh.bvh[0];
+            let aabb = match root {
+                BVHNode::Internal { aabb, left: _, right: _ } => aabb,
+                _ => { continue; }
+            };
+            let max_side = aabb.halfwidths.x.max(aabb.halfwidths.y).max(aabb.halfwidths.z);
+            let dist = max_side as f32 * 2.0;
+
+            if dist > max_dist {
+                max_dist = dist;
+            }
+        }
     
-        let translation = rotation.mul_vec3(CAM_Y) + cam.target;
+        let translation = rotation.mul_vec3(Vec3::new(0.0, max_dist, 0.0)) + cam.target;
     
         let up = if cam.vertical_angle == 0.0 {
             rotate_y.mul_vec3(Vec3::NEG_Z)

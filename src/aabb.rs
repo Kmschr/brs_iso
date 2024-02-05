@@ -1,4 +1,4 @@
-use bevy::math::IVec3;
+use bevy::math::{IVec3, Ray};
 use brickadia::{save::{SaveData, Brick}, util::get_axis_size};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -23,7 +23,7 @@ impl AABB {
         }
     }
 
-    pub fn intersects(&self, other: &AABB) -> bool {
+    pub fn neighbors(&self, other: &AABB) -> bool {
         if (self.center.x - other.center.x).abs() > (self.halfwidths.x + other.halfwidths.x) {
             return false;
         }
@@ -34,6 +34,23 @@ impl AABB {
             return false;
         }
         true
+    }
+
+    pub fn intersects(&self, ray: Ray) -> bool {
+        let center = self.center.as_vec3();
+        let halfwidths = self.halfwidths.as_vec3();
+
+        let t1 = (center.x - halfwidths.x - ray.origin.x) / ray.direction.x;
+        let t2 = (center.x + halfwidths.x - ray.origin.x) / ray.direction.x;
+        let t3 = (center.y - halfwidths.y - ray.origin.y) / ray.direction.y;
+        let t4 = (center.y + halfwidths.y - ray.origin.y) / ray.direction.y;
+        let t5 = (center.z - halfwidths.z - ray.origin.z) / ray.direction.z;
+        let t6 = (center.z + halfwidths.z - ray.origin.z) / ray.direction.z;
+
+        let tmin = t1.min(t2).max(t3.min(t4).max(t5.min(t6)));
+        let tmax = t1.max(t2).min(t3.max(t4).min(t5.max(t6)));
+
+        tmax >= 0.0 && tmin <= tmax
     }
 
     pub fn volume(&self) -> i64 {

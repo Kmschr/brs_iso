@@ -84,6 +84,26 @@ impl BVH {
         }
         i
     }
+
+    pub fn intersection(&self, ray: Ray, aabbs: &Vec<AABB>) -> Option<usize> {
+        let mut stack = vec![0];
+        while let Some(node) = stack.pop() {
+            match &self.arena[node] {
+                BVHNode::Internal { aabb, left, right } => {
+                    if aabb.intersects(ray) {
+                        stack.push(*left);
+                        stack.push(*right);
+                    }
+                },
+                BVHNode::Leaf { i } => {
+                    if aabbs[*i].intersects(ray) {
+                        return Some(*i);
+                    }
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Index<usize> for BVH {
@@ -164,7 +184,7 @@ impl Buffers {
 pub struct BVHMeshGenerator<'a> {
     save_data: &'a SaveData,
     faces: Vec<Vec<Face>>,
-    aabbs: Vec<AABB>,
+    pub aabbs: Vec<AABB>,
     pub bvh: BVH,
 }
 
@@ -193,7 +213,7 @@ impl<'a> BVHMeshGenerator<'a> {
                     None
                 } else {
                     let mut neighbors = vec![];
-                    self.traverse_neighbors(0, i, &mut neighbors);
+                    self.traverse_neighbors(i, &mut neighbors);
                     Some(self.cull_faces(i, neighbors))
                 }
             })
@@ -330,22 +350,23 @@ impl<'a> BVHMeshGenerator<'a> {
     }
     
 
-    fn traverse_neighbors(&self, current_node: usize, target_index: usize, neighbors: &mut Vec<usize>) {
+    fn traverse_neighbors(&self, target_index: usize, neighbors: &mut Vec<usize>) {
         let target_aabb = self.aabbs[target_index];
-        match &self.bvh[current_node] {
-            BVHNode::Internal { aabb, left, right } => {
-                if !target_aabb.intersects(aabb) {
-                    return;
+        let mut stack = vec![0];
+    
+        while let Some(node) = stack.pop() {
+            match &self.bvh[node] {
+                BVHNode::Internal { aabb, left, right } => {
+                    if target_aabb.neighbors(aabb) {
+                        stack.push(*left);
+                        stack.push(*right);
+                    }
+                },
+                BVHNode::Leaf { i } => {
+                    if target_index != *i && target_aabb.neighbors(&self.aabbs[*i]) {
+                        neighbors.push(*i);
+                    }
                 }
-
-                self.traverse_neighbors(*left, target_index, neighbors);
-                self.traverse_neighbors(*right, target_index, neighbors);
-            },
-            BVHNode::Leaf { i } => {
-                if target_index == *i || !target_aabb.intersects(&self.aabbs[*i])  {
-                    return;
-                }
-                neighbors.push(*i);
             }
         }
     }

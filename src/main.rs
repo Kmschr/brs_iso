@@ -15,8 +15,10 @@ mod utils;
 
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
+use aabb::AABB;
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window:: WindowResolution, winit::WinitWindows};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::{PrimaryWindow,  WindowResolution}, winit::WinitWindows};
+use bevy_egui::{egui, EguiContexts, EguiPlugin};
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::{BVHNode, BVH};
@@ -38,7 +40,9 @@ struct ChunkEntity {
 
 #[derive(Component)]
 struct SaveBVH {
-    bvh: BVH,
+    save_data: SaveData,
+    pub bvh: BVH,
+    aabbs: Vec<AABB>,
     com: Vec3
 }
 
@@ -75,13 +79,12 @@ fn main() {
         .insert_resource(GlobalVolume::new(0.2))
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
+        .add_plugins(EguiPlugin)
         .add_plugins(EmbeddedAssetPlugin::default())
         .add_systems(Startup, set_window_icon)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
-        .add_systems(Update, (bvh_gizmos, change_depth))
-        .add_systems(Update, spotlight_gizmos)
-        .add_systems(Update, light_gizmos)
+        .add_systems(Update, (bvh_gizmos, change_depth, spotlight_gizmos, light_gizmos, brick_info))
         .run();
 }
 
@@ -118,36 +121,57 @@ fn setup(
     ));
 }
 
-// fn brick_info(
-//     window_query: Query<&Window, With<PrimaryWindow>>,
-//     cameras: Query<(&Camera, &GlobalTransform)>,
-//     bvh_query: Query<&SaveBVH>,
-// ) {
-//     let window = window_query.get_single().unwrap();
-//     let mouse_pos = window.cursor_position().unwrap();
-//     let size = Vec2::new(window.width() as f32, window.height() as f32);
+fn brick_info(
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+    bvh_query: Query<&SaveBVH>,
+    mut contexts: EguiContexts,
+    mut gizmos: Gizmos,
+) {
+    for save_bvh in bvh_query.iter() {
+        let window = match window_query.get_single() {
+            Ok(window) => window,
+            Err(_) => return,
+        };
+        let mouse_pos: Vec2 = match window.cursor_position() {
+            Some(pos) => pos,
+            None => return,
+        };
+    
+        for (camera, camera_transform) in cameras.iter() {
+            let ray = camera.viewport_to_world(camera_transform, mouse_pos);
+    
+            if let Some(ray) = ray {
+                let brick_index = save_bvh.bvh.intersection(ray, &save_bvh.aabbs);
+                if let Some(brick_index) = brick_index {
+                    let brick = &save_bvh.save_data.bricks[brick_index];
+                    let asset_name = &save_bvh.save_data.header2.brick_assets[brick.asset_name_index as usize];
 
-//     // Convert to normalized device coordinates
-//     let ndc = (mouse_pos / size) * 2.0 - Vec2::new(1.0, 1.0);
-//     let ndc_point = Vec4::new(ndc.x, -ndc.y, -1.0, 1.0);
+                    let owner = if brick.owner_index == 0 {
+                        "PUBLIC"
+                    } else {
+                        save_bvh.save_data.header2.brick_owners[brick.owner_index as usize - 1].name.as_str()
+                    };
 
-//     for (camera, camera_transform) in cameras.iter() {
-//         let projection_matrix = camera.projection_matrix();
-//         let view_matrix = camera_transform.compute_matrix().inverse();
-
-//         // Convert to view space
-//         let view_point = projection_matrix.inverse() * ndc_point;
-
-//         // Convert to world space
-//         let world_point = view_matrix * view_point;
-
-//         // Create ray
-//         let ray_origin = camera_transform.translation();
-//         let ray_direction = (world_point.xyz() - ray_origin).normalize();
-
-//         // Use ray for intersection tests...
-//     }
-// }
+                    egui::Window::new("Brick Info").show(contexts.ctx_mut(), |ui| {
+                        ui.label(format!("Brick index: {}", brick_index));
+                        ui.label(format!("Brick position: {:?}", brick.position));
+                        ui.label(format!("Brick size: {:?}", brick.size));
+                        ui.label(format!("Brick asset: {}", asset_name));
+                        ui.label(format!("Brick owner: {}", owner));
+                    });
+    
+                    let aabb = save_bvh.aabbs[brick_index];
+                    gizmos.cuboid(Transform {
+                        translation: aabb.center.as_vec3(),
+                        rotation: Quat::IDENTITY,
+                        scale: aabb.halfwidths.as_vec3() * 2.0,
+                    }, Color::WHITE);
+                }
+            }
+        }
+    }
+}
 
 fn set_window_icon(
     windows: NonSend<WinitWindows>,
@@ -289,8 +313,13 @@ fn load_save(
         i += 1;
     }
 
+    let bvh = generator.bvh;
+    let aabbs = generator.aabbs;
+
     commands.spawn(SaveBVH {
-        bvh: generator.bvh,
+        bvh,
+        save_data,
+        aabbs,
         com,
     });
 
