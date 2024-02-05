@@ -1,4 +1,4 @@
-use std::{ops::Neg, time::SystemTime};
+use std::{ops::{Index, Neg}, time::SystemTime};
 
 use bevy::{math::I64Vec3, prelude::*, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
 use rayon::prelude::*;
@@ -50,9 +50,31 @@ lazy_static! {
 
 const CHUNK_SIZE: i32 = 2048;
 
+// Arena Tree Bounding Volume Hierarchy
+pub struct BVH {
+    pub arena: Vec<BVHNode>,
+    pub root: usize,
+}
+
+impl BVH {
+    fn new(indices: Vec<usize>, aabbs: &Vec<AABB>) -> Self {
+        let mut arena = Vec::with_capacity(indices.len() * 2);
+        let root = top_down_bv_tree(indices, &aabbs, &mut arena);
+        Self { arena, root }
+    }
+}
+
+impl Index<usize> for BVH {
+    type Output = BVHNode;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.arena[index]
+    }
+}
+
 pub enum BVHNode {
     Leaf { i: usize },
-    Internal { aabb: AABB, left: Box<BVHNode>, right: Box<BVHNode> }
+    Internal { aabb: AABB, left: usize, right: usize }
 }
 
 pub struct Buffers {
@@ -75,7 +97,7 @@ pub struct BVHMeshGenerator<'a> {
     save_data: &'a SaveData,
     faces: Vec<Vec<Face>>,
     aabbs: Vec<AABB>,
-    pub bvh: BVHNode,
+    pub bvh: BVH,
 }
 
 impl<'a> BVHMeshGenerator<'a> {
@@ -84,7 +106,7 @@ impl<'a> BVHMeshGenerator<'a> {
         let aabbs = gen_aabbs(save_data);
         let now = SystemTime::now();
         let indices = (0..save_data.bricks.len()).collect();
-        let bvh = top_down_bv_tree(indices, save_data, &aabbs);
+        let bvh = BVH::new(indices, &aabbs);
         info!("Built BVH in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
         Self {
@@ -103,7 +125,7 @@ impl<'a> BVHMeshGenerator<'a> {
                     None
                 } else {
                     let mut neighbors = vec![];
-                    self.traverse_neighbors(&self.bvh, i, &mut neighbors);
+                    self.traverse_neighbors(self.bvh.root, i, &mut neighbors);
                     Some(self.cull_faces(i, neighbors))
                 }
             })
@@ -240,16 +262,16 @@ impl<'a> BVHMeshGenerator<'a> {
     }
     
 
-    fn traverse_neighbors(&self, current_node: &BVHNode, target_index: usize, neighbors: &mut Vec<usize>) {
+    fn traverse_neighbors(&self, current_node: usize, target_index: usize, neighbors: &mut Vec<usize>) {
         let target_aabb = self.aabbs[target_index];
-        match current_node {
+        match &self.bvh[current_node] {
             BVHNode::Internal { aabb, left, right } => {
                 if !target_aabb.intersects(aabb) {
                     return;
                 }
 
-                self.traverse_neighbors(left, target_index, neighbors);
-                self.traverse_neighbors(right, target_index, neighbors);
+                self.traverse_neighbors(*left, target_index, neighbors);
+                self.traverse_neighbors(*right, target_index, neighbors);
             },
             BVHNode::Leaf { i } => {
                 if target_index == *i || !target_aabb.intersects(&self.aabbs[*i])  {
@@ -261,29 +283,22 @@ impl<'a> BVHMeshGenerator<'a> {
     }
 }
 
-fn top_down_bv_tree(mut indices: Vec<usize>, save_data: &SaveData, aabbs: &Vec<AABB>) -> BVHNode {
-    if indices.len() <= 1 {
-        let i = indices.pop().unwrap();
-        BVHNode::Leaf {
-            i,
-        }
+fn top_down_bv_tree(mut brick_indices: Vec<usize>, aabbs: &Vec<AABB>, arena: &mut Vec<BVHNode>) -> usize {
+    if brick_indices.len() <= 1 {
+        let brick_index = brick_indices.pop().unwrap();
+        arena.push(BVHNode::Leaf { i: brick_index });
     } else {
-        let (k, aabb) = partition_bricks(&mut indices, aabbs);
+        let (k, aabb) = partition_bricks(&mut brick_indices, aabbs);
 
-        let right_bricks = indices.drain(k..).collect();
-        let left_bricks = indices;
+        let right_bricks = brick_indices.drain(k..).collect();
+        let left_bricks = brick_indices;
 
-        let (left, right) = rayon::join(
-            || top_down_bv_tree(left_bricks, save_data, aabbs),
-            || top_down_bv_tree(right_bricks, save_data, aabbs),
-        );
+        let left = top_down_bv_tree(left_bricks, aabbs, arena);
+        let right = top_down_bv_tree(right_bricks, aabbs, arena);
 
-        BVHNode::Internal {
-            aabb,
-            left: Box::new(left),
-            right: Box::new(right),
-        }
+        arena.push(BVHNode::Internal { aabb, left, right });
     }
+    arena.len() - 1
 }
 
 fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB) {

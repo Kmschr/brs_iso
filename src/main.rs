@@ -16,10 +16,10 @@ mod utils;
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::WindowResolution, winit::WinitWindows};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window:: WindowResolution, winit::WinitWindows};
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
-use bvh::BVHNode;
+use bvh::{BVHNode, BVH};
 use cam::{IsoCamera, IsoCameraPlugin};
 use chat::ChatPlugin;
 use fps::FPSPlugin;
@@ -38,7 +38,7 @@ struct ChunkEntity {
 
 #[derive(Component)]
 struct SaveBVH {
-    bvh: BVHNode,
+    bvh: BVH,
     com: Vec3
 }
 
@@ -117,6 +117,37 @@ fn setup(
         Ground,
     ));
 }
+
+// fn brick_info(
+//     window_query: Query<&Window, With<PrimaryWindow>>,
+//     cameras: Query<(&Camera, &GlobalTransform)>,
+//     bvh_query: Query<&SaveBVH>,
+// ) {
+//     let window = window_query.get_single().unwrap();
+//     let mouse_pos = window.cursor_position().unwrap();
+//     let size = Vec2::new(window.width() as f32, window.height() as f32);
+
+//     // Convert to normalized device coordinates
+//     let ndc = (mouse_pos / size) * 2.0 - Vec2::new(1.0, 1.0);
+//     let ndc_point = Vec4::new(ndc.x, -ndc.y, -1.0, 1.0);
+
+//     for (camera, camera_transform) in cameras.iter() {
+//         let projection_matrix = camera.projection_matrix();
+//         let view_matrix = camera_transform.compute_matrix().inverse();
+
+//         // Convert to view space
+//         let view_point = projection_matrix.inverse() * ndc_point;
+
+//         // Convert to world space
+//         let world_point = view_matrix * view_point;
+
+//         // Create ray
+//         let ray_origin = camera_transform.translation();
+//         let ray_direction = (world_point.xyz() - ray_origin).normalize();
+
+//         // Use ray for intersection tests...
+//     }
+// }
 
 fn set_window_icon(
     windows: NonSend<WinitWindows>,
@@ -363,14 +394,14 @@ fn bvh_gizmos (
     for save_bvh in &query {
         match game_state.bvh_view {
             BVHView::On(depth) => {
-                aabb_gizmos_recursive(&save_bvh.bvh, &mut gizmos, 0, depth);
+                aabb_gizmos_recursive(&save_bvh.bvh, save_bvh.bvh.root, &mut gizmos, 0, depth);
             },
             BVHView::Off => {}
         }
     }
 }
 
-fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_depth: u8) {
+fn aabb_gizmos_recursive(bvh: &BVH, node: usize, gizmos: &mut Gizmos, depth: u8, target_depth: u8) {
     let color = match depth {
         0 => Color::WHITE,
         1 => Color::BLUE,
@@ -382,7 +413,7 @@ fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_d
         _ => Color::WHITE,
     };
 
-    match bvh {
+    match &bvh[node] {
         BVHNode::Internal { aabb, left, right } => {
             if depth == target_depth {
                 gizmos.cuboid(Transform {
@@ -393,8 +424,8 @@ fn aabb_gizmos_recursive(bvh: &BVHNode, gizmos: &mut Gizmos, depth: u8, target_d
                 return;
             }
 
-            aabb_gizmos_recursive(&left, gizmos, depth + 1, target_depth);
-            aabb_gizmos_recursive(&right, gizmos, depth + 1, target_depth);
+            aabb_gizmos_recursive(bvh, *left, gizmos, depth + 1, target_depth);
+            aabb_gizmos_recursive(bvh, *right, gizmos, depth + 1, target_depth);
         },
         _ => {}
     }

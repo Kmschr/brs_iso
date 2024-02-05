@@ -232,9 +232,11 @@ fn keyboard_system(
                         "/bvh" => {
                             match game_state.bvh_view {
                                 BVHView::Off => {
+                                    info!("Toggled BVH On");
                                     game_state.bvh_view = BVHView::On(0);
                                 },
                                 BVHView::On(_) => {
+                                    info!("Toggled BVH Off");
                                     game_state.bvh_view = BVHView::Off;
                                 }
                             }
