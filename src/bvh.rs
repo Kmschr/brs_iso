@@ -53,14 +53,36 @@ const CHUNK_SIZE: i32 = 2048;
 // Arena Tree Bounding Volume Hierarchy
 pub struct BVH {
     pub arena: Vec<BVHNode>,
-    pub root: usize,
 }
 
 impl BVH {
     fn new(indices: Vec<usize>, aabbs: &Vec<AABB>) -> Self {
-        let mut arena = Vec::with_capacity(indices.len() * 2);
-        let root = top_down_bv_tree(indices, &aabbs, &mut arena);
-        Self { arena, root }
+        let mut bvh = Self { 
+            arena: Vec::with_capacity(indices.len() * 2)
+        };
+        bvh.top_down_bv_tree(indices, aabbs);
+        bvh
+    }
+
+    fn top_down_bv_tree(&mut self, mut brick_indices: Vec<usize>, aabbs: &Vec<AABB>) -> usize {
+        let i = self.arena.len();
+        if brick_indices.len() <= 1 {
+            let brick_index = brick_indices.pop().unwrap();
+            self.arena.push(BVHNode::Leaf { i: brick_index });
+        } else {
+            let (k, aabb) = partition_bricks(&mut brick_indices, aabbs);
+            let (left_bricks, right_bricks) = brick_indices.split_at(k);
+            self.arena.push(BVHNode::Internal { aabb, left: 0, right: 0 });
+
+            let left_idx = self.top_down_bv_tree(left_bricks.to_vec(), aabbs);
+            let right_idx = self.top_down_bv_tree(right_bricks.to_vec(), aabbs);
+
+            if let BVHNode::Internal { left, right, .. } = &mut self.arena[i] {
+                *left = left_idx;
+                *right = right_idx;
+            }
+        }
+        i
     }
 }
 
@@ -75,6 +97,52 @@ impl Index<usize> for BVH {
 pub enum BVHNode {
     Leaf { i: usize },
     Internal { aabb: AABB, left: usize, right: usize }
+}
+
+fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB) {
+    // calculate volume containing all sub-volumes
+    let mut min = aabbs[indices[0]].center;
+    let mut max = aabbs[indices[0]].center;
+
+    for i in indices.iter() {
+        let aabb = &aabbs[*i];
+        let aabb_min = aabb.center - aabb.halfwidths;
+        let aabb_max = aabb.center + aabb.halfwidths;
+
+        min = min.min(aabb_min);
+        max = max.max(aabb_max);
+    }
+
+    // if total size is uneven add a bit to the max of the volume
+    let size: IVec3 = max - min;
+    if size.x % 2 == 0 {
+        max.x += 1;
+    }
+    if size.y % 2 == 0 {
+        max.y += 1;
+    }
+    if size.z % 2 == 0 {
+        max.z += 1;
+    }
+
+    let center = (min + max) / 2;
+    let halfwidths = (max - min) / 2;
+
+    let aabb = AABB {
+        center,
+        halfwidths
+    };
+
+    // cut based on longest axis
+    if aabb.halfwidths.x > aabb.halfwidths.y && aabb.halfwidths.x > aabb.halfwidths.z {
+        indices.sort_unstable_by_key(|i| aabbs[*i].center.x);
+    } else if aabb.halfwidths.y > aabb.halfwidths.x && aabb.halfwidths.y > aabb.halfwidths.z {
+        indices.sort_unstable_by_key(|i| aabbs[*i].center.y);
+    } else {
+        indices.sort_unstable_by_key(|i| aabbs[*i].center.z);
+    }
+    
+    (indices.len() / 2, aabb)
 }
 
 pub struct Buffers {
@@ -125,7 +193,7 @@ impl<'a> BVHMeshGenerator<'a> {
                     None
                 } else {
                     let mut neighbors = vec![];
-                    self.traverse_neighbors(self.bvh.root, i, &mut neighbors);
+                    self.traverse_neighbors(0, i, &mut neighbors);
                     Some(self.cull_faces(i, neighbors))
                 }
             })
@@ -282,71 +350,6 @@ impl<'a> BVHMeshGenerator<'a> {
         }
     }
 }
-
-fn top_down_bv_tree(mut brick_indices: Vec<usize>, aabbs: &Vec<AABB>, arena: &mut Vec<BVHNode>) -> usize {
-    if brick_indices.len() <= 1 {
-        let brick_index = brick_indices.pop().unwrap();
-        arena.push(BVHNode::Leaf { i: brick_index });
-    } else {
-        let (k, aabb) = partition_bricks(&mut brick_indices, aabbs);
-
-        let right_bricks = brick_indices.drain(k..).collect();
-        let left_bricks = brick_indices;
-
-        let left = top_down_bv_tree(left_bricks, aabbs, arena);
-        let right = top_down_bv_tree(right_bricks, aabbs, arena);
-
-        arena.push(BVHNode::Internal { aabb, left, right });
-    }
-    arena.len() - 1
-}
-
-fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB) {
-    // calculate volume containing all sub-volumes
-    let mut min = aabbs[indices[0]].center;
-    let mut max = aabbs[indices[0]].center;
-
-    for i in indices.iter() {
-        let aabb = &aabbs[*i];
-        let aabb_min = aabb.center - aabb.halfwidths;
-        let aabb_max = aabb.center + aabb.halfwidths;
-
-        min = min.min(aabb_min);
-        max = max.max(aabb_max);
-    }
-
-    // if total size is uneven add a bit to the max of the volume
-    let size: IVec3 = max - min;
-    if size.x % 2 == 0 {
-        max.x += 1;
-    }
-    if size.y % 2 == 0 {
-        max.y += 1;
-    }
-    if size.z % 2 == 0 {
-        max.z += 1;
-    }
-
-    let center = (min + max) / 2;
-    let halfwidths = (max - min) / 2;
-
-    let aabb = AABB {
-        center,
-        halfwidths
-    };
-
-    // cut based on longest axis
-    if aabb.halfwidths.x > aabb.halfwidths.y && aabb.halfwidths.x > aabb.halfwidths.z {
-        indices.sort_unstable_by_key(|i| aabbs[*i].center.x);
-    } else if aabb.halfwidths.y > aabb.halfwidths.x && aabb.halfwidths.y > aabb.halfwidths.z {
-        indices.sort_unstable_by_key(|i| aabbs[*i].center.y);
-    } else {
-        indices.sort_unstable_by_key(|i| aabbs[*i].center.z);
-    }
-    
-    (indices.len() / 2, aabb)
-}
-
 
 fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
     let now = SystemTime::now();

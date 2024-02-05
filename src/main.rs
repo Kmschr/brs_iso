@@ -394,7 +394,7 @@ fn bvh_gizmos (
     for save_bvh in &query {
         match game_state.bvh_view {
             BVHView::On(depth) => {
-                aabb_gizmos_recursive(&save_bvh.bvh, save_bvh.bvh.root, &mut gizmos, 0, depth);
+                aabb_gizmos_recursive(&save_bvh.bvh, 0, &mut gizmos, 0, depth);
             },
             BVHView::Off => {}
         }
@@ -439,10 +439,10 @@ fn change_depth(
         InputState::Listen => {
             match &mut game_state.bvh_view {
                 BVHView::On(depth) => {
-                    if keycode.just_pressed(KeyCode::W) {
+                    if keycode.just_pressed(KeyCode::X) {
                         *depth += 1;
                     }
-                    if keycode.just_pressed(KeyCode::S) {
+                    if keycode.just_pressed(KeyCode::Z) {
                         *depth -= 1;
                     }
                 }
