@@ -1,9 +1,21 @@
-Goals:
+# BRS Iso
+
+An isometric-style viewer for Brickadia saves
+
+![Isometric Trains](./pics/trains.png)
+
+
+![Castle](./pics/castle.png)
+
+## Motivation
+Brickadia is made in Unreal engine, which does not have support for orthographic camera rendering that is not aligned to a major axis, so isometric views are not possible
+
+## Goals:
 - better mesh optimization (coverage + planar reduction)
 - better camera movement
 - hologram material
 
-Controls:
+## Controls:
 ```
 L - load a save
 WASD - move camera (hold shift to speed up)
