@@ -1,6 +1,6 @@
 # BRS Iso
 
-An isometric-style viewer for Brickadia saves
+An isometric-style viewer for Brickadia saves, made with the Bevy game engine
 
 ![Isometric Trains](./pics/trains.png)
 
