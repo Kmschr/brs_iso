@@ -17,6 +17,7 @@ pub struct IsoCamera {
     pub target: Vec3,
     pub horizontal_angle: f32,
     pub vertical_angle: f32,
+    pub dist: f32,
 }
 
 #[derive(Component)]
@@ -54,7 +55,7 @@ impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons, jump_home, update_transform, rotate_keyboard, rotate_mouse))
+            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons, jump_home, update_transform, rotate_keyboard, rotate_mouse, change_dist))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -69,6 +70,7 @@ fn spawn_camera(
         IsoCamera {
             horizontal_angle: 45.0,
             vertical_angle: 45.0,
+            dist: 100.0,
             ..default()
         },
         Camera3dBundle {
@@ -283,6 +285,11 @@ fn move_cam_keyboard(
     } else if keyboard.pressed(KeyCode::A) {
         movement += Vec3::NEG_X;
     }
+    if keyboard.pressed(KeyCode::Space) {
+        movement += Vec3::Y;
+    } else if keyboard.pressed(KeyCode::ControlLeft) {
+        movement += Vec3::NEG_Y;
+    }
 
     movement = movement.normalize_or_zero();
 
@@ -374,8 +381,10 @@ fn update_transform(
                 max_dist = dist;
             }
         }
+
+        let dist = (cam.dist / 100.0) * max_dist;
     
-        let translation = rotation.mul_vec3(Vec3::new(0.0, max_dist, 0.0)) + cam.target;
+        let translation = rotation.mul_vec3(Vec3::new(0.0, dist, 0.0)) + cam.target;
     
         let up = if cam.vertical_angle == 0.0 {
             rotate_y.mul_vec3(Vec3::NEG_Z)
@@ -427,7 +436,7 @@ fn rotate_mouse(
     mut motion_evr: EventReader<MouseMotion>,
     mouse: Res<Input<MouseButton>>,
 ) {
-    if !mouse.pressed(MouseButton::Right) {
+    if !mouse.pressed(MouseButton::Middle) {
         return;
     }
 
@@ -447,5 +456,32 @@ fn rotate_mouse(
         cam.horizontal_angle += motion.x * 0.1;
 
         cam.vertical_angle = cam.vertical_angle.clamp(0.0, 90.0);
+    }
+}
+
+fn change_dist(
+    mut query: Query<&mut IsoCamera>,
+    keyboard: Res<Input<KeyCode>>,
+    time: Res<Time>,
+) {
+    let mut delta: f32 = 0.0;
+
+    if keyboard.pressed(KeyCode::Numpad1) {
+        delta = -1.0;
+    }
+    if keyboard.pressed(KeyCode::Numpad3) {
+        delta = 1.0;
+    }
+    if keyboard.pressed(KeyCode::ShiftLeft) {
+        delta *= 100.0;
+    }
+
+    if delta == 0.0 {
+        return;
+    }
+
+    for mut cam in query.iter_mut() {
+        cam.dist += delta * time.delta_seconds() * 10.0;
+        cam.dist = cam.dist.clamp(0.1, 100.0);
     }
 }

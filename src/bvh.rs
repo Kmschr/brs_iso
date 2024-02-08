@@ -56,26 +56,26 @@ pub struct BVH {
 }
 
 impl BVH {
-    fn new(indices: Vec<usize>, aabbs: &Vec<AABB>) -> Self {
+    fn new(mut indices: Vec<usize>, aabbs: &Vec<AABB>) -> Self {
         let mut bvh = Self { 
             arena: Vec::with_capacity(indices.len() * 2)
         };
-        bvh.top_down_bv_tree(indices, aabbs);
+        bvh.top_down_bv_tree(&mut indices, aabbs);
         bvh
     }
 
-    fn top_down_bv_tree(&mut self, mut brick_indices: Vec<usize>, aabbs: &Vec<AABB>) -> usize {
+    fn top_down_bv_tree(&mut self, brick_indices: &mut [usize], aabbs: &Vec<AABB>) -> usize {
         let i = self.arena.len();
         if brick_indices.len() <= 1 {
-            let brick_index = brick_indices.pop().unwrap();
+            let brick_index = brick_indices[0];
             self.arena.push(BVHNode::Leaf { i: brick_index });
         } else {
-            let (k, aabb) = partition_bricks(&mut brick_indices, aabbs);
-            let (left_bricks, right_bricks) = brick_indices.split_at(k);
+            let (k, aabb) = partition_bricks(brick_indices, aabbs);
+            let (left_bricks, right_bricks) = brick_indices.split_at_mut(k);
             self.arena.push(BVHNode::Internal { aabb, left: 0, right: 0 });
 
-            let left_idx = self.top_down_bv_tree(left_bricks.to_vec(), aabbs);
-            let right_idx = self.top_down_bv_tree(right_bricks.to_vec(), aabbs);
+            let left_idx = self.top_down_bv_tree(left_bricks, aabbs);
+            let right_idx = self.top_down_bv_tree(right_bricks, aabbs);
 
             if let BVHNode::Internal { left, right, .. } = &mut self.arena[i] {
                 *left = left_idx;
@@ -119,7 +119,7 @@ pub enum BVHNode {
     Internal { aabb: AABB, left: usize, right: usize }
 }
 
-fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB) {
+fn partition_bricks(indices: &mut [usize], aabbs: &Vec<AABB>) -> (usize, AABB) {
     // calculate volume containing all sub-volumes
     let mut min = aabbs[indices[0]].center;
     let mut max = aabbs[indices[0]].center;
@@ -135,13 +135,13 @@ fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB
 
     // if total size is uneven add a bit to the max of the volume
     let size: IVec3 = max - min;
-    if size.x % 2 == 0 {
+    if size.x % 2 == 1 {
         max.x += 1;
     }
-    if size.y % 2 == 0 {
+    if size.y % 2 == 1 {
         max.y += 1;
     }
-    if size.z % 2 == 0 {
+    if size.z % 2 == 1 {
         max.z += 1;
     }
 
@@ -191,6 +191,7 @@ pub struct BVHMeshGenerator<'a> {
 impl<'a> BVHMeshGenerator<'a> {
     pub fn new(save_data: &'a SaveData) -> Self {
         let faces = gen_faces(save_data);
+
         let aabbs = gen_aabbs(save_data);
         let now = SystemTime::now();
         let indices = (0..save_data.bricks.len()).collect();

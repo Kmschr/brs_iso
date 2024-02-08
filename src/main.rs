@@ -125,9 +125,14 @@ fn brick_info(
     window_query: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
     bvh_query: Query<&SaveBVH>,
+    mouse: Res<Input<MouseButton>>,
     mut contexts: EguiContexts,
     mut gizmos: Gizmos,
 ) {
+    if !mouse.pressed(MouseButton::Right) {
+        return;
+    }
+
     for save_bvh in bvh_query.iter() {
         let window = match window_query.get_single() {
             Ok(window) => window,
