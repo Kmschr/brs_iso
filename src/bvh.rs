@@ -1,6 +1,6 @@
 use std::{ops::{Index, Neg}, time::SystemTime};
 
-use bevy::{math::I64Vec3, prelude::*, render::render_resource::PrimitiveTopology, utils::{HashMap, HashSet}};
+use bevy::{math::I64Vec3, prelude::*, render::{mesh::Indices, render_resource::PrimitiveTopology}, utils::{HashMap, HashSet}};
 use rayon::prelude::*;
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
@@ -168,7 +168,8 @@ fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB
 pub struct Buffers {
     position: Vec<[f32; 3]>,
     color: Vec<[f32; 4]>,
-    normal: Vec<[f32; 3]>
+    normal: Vec<[f32; 3]>,
+    indices: Vec<u32>,
 }
 
 impl Buffers {
@@ -176,7 +177,8 @@ impl Buffers {
         Self {
             position: Vec::new(),
             color: Vec::new(),
-            normal: Vec::new()
+            normal: Vec::new(),
+            indices: Vec::new(),
         }
     }
 }
@@ -272,15 +274,22 @@ impl<'a> BVHMeshGenerator<'a> {
                 }
 
                 let face = &self.faces[i][j];
-                let positions = face.positions();
                 let normal = face.normal.to_array();
 
                 final_faces += 1;
-    
-                for pos in positions {
-                    buffers.position.push(pos);
+
+                // Push each face's verts once and fan-triangulate with an index
+                // buffer, instead of duplicating shared verts per triangle.
+                let base = buffers.position.len() as u32;
+                for vert in &face.verts {
+                    buffers.position.push(vert.to_array());
                     buffers.color.push(color);
                     buffers.normal.push(normal);
+                }
+                for k in 0..(face.verts.len() as u32).saturating_sub(2) {
+                    buffers.indices.push(base);
+                    buffers.indices.push(base + 2 + k);
+                    buffers.indices.push(base + 1 + k);
                 }
             }
         }
@@ -302,6 +311,7 @@ impl<'a> BVHMeshGenerator<'a> {
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, buffers.position);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, buffers.color);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, buffers.normal);
+                mesh.set_indices(Some(Indices::U32(buffers.indices)));
                 material_meshes[i].push(mesh);
                 total_chunks += 1;
             }

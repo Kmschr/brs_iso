@@ -89,16 +89,6 @@ impl Face {
         }
     }
 
-    pub fn positions(&self) -> Vec<[f32; 3]> {
-        let mut positions = vec![];
-        for i in 0..(self.verts.len() - 2) {
-            positions.push(self.verts[0].to_array());
-            positions.push(self.verts[2 + i].to_array());
-            positions.push(self.verts[1 + i].to_array());
-        }
-        positions
-    }
-
     pub fn inside(&self, other: &Face) -> bool {
         // check opposite coplanar and coincident
         if self.normal != other.normal.neg() || !self.coincident_planes(other) {

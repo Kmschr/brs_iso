@@ -1,5 +1,6 @@
 mod aabb;
 mod asset_loader;
+mod brdb_load;
 mod bvh;
 mod cam;
 mod chat;
@@ -358,17 +359,27 @@ fn spawn_chunks(
 
 fn ask_save_path() -> PathBuf {
     rfd::FileDialog::new()
-        .add_filter("Brickadia Save", &["brs"])
+        .add_filter("Brickadia Save", &["brs", "brdb", "brz"])
         .set_directory(default_build_directory().unwrap())
         .pick_file()
         .unwrap()
 }
 
 fn load_save_data(path: PathBuf) -> SaveData {
-    SaveReader::new(BufReader::new(File::open(path).unwrap()))
-        .unwrap()
-        .read_all()
-        .unwrap()
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    match ext.as_str() {
+        "brdb" => brdb_load::load_brdb_world(&path).expect("failed to load .brdb world"),
+        "brz" => brdb_load::load_brz_prefab(&path).expect("failed to load .brz prefab"),
+        _ => SaveReader::new(BufReader::new(File::open(path).unwrap()))
+            .unwrap()
+            .read_all()
+            .unwrap(),
+    }
 }
 
 fn default_build_directory() -> Option<PathBuf> {
