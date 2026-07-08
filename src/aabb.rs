@@ -1,4 +1,4 @@
-use bevy::math::{IVec3, Ray};
+use bevy::math::{IVec3, Ray3d};
 use brickadia::{save::{SaveData, Brick}, util::get_axis_size};
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -36,7 +36,7 @@ impl AABB {
         true
     }
 
-    pub fn intersects(&self, ray: Ray) -> bool {
+    pub fn intersects(&self, ray: Ray3d) -> bool {
         let center = self.center.as_vec3();
         let halfwidths = self.halfwidths.as_vec3();
 

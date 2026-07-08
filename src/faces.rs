@@ -1,7 +1,8 @@
 use std::{hash::Hasher, ops::Neg};
 use std::hash::Hash;
+use std::collections::hash_map::DefaultHasher;
 
-use bevy::{prelude::*, utils::AHasher};
+use bevy::prelude::*;
 
 const A: Vec3 = Vec3::new(-1., 1., 1.);
 const B: Vec3 = Vec3::new(-1., 1., -1.);
@@ -134,11 +135,11 @@ impl Hash for Face {
 
 impl PartialEq for Face {
     fn eq(&self, other: &Self) -> bool {
-        let mut hasher = AHasher::default();
+        let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
         let a = hasher.finish();
 
-        let mut hasher = AHasher::default();
+        let mut hasher = DefaultHasher::new();
         other.hash(&mut hasher);
         let b = hasher.finish();
 

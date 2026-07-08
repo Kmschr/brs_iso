@@ -18,8 +18,8 @@ use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, 
 
 use aabb::AABB;
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, render::mesh::shape::Plane, window::{PrimaryWindow,  WindowResolution}, winit::WinitWindows};
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, window::{PrimaryWindow, WindowResolution}, winit::WinitWindows};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
 use bvh::{BVHNode, BVH};
@@ -63,7 +63,7 @@ fn main() {
             primary_window: Some(Window {
                 title: "Brickadia Isometric Viewer".into(),
                 // present_mode: PresentMode::Immediate,
-                resolution: WindowResolution::new(1600., 900.),
+                resolution: WindowResolution::new(1600, 900),
                 resize_constraints: WindowResizeConstraints {
                     min_width: 854.,
                     min_height: 480.,
@@ -73,19 +73,21 @@ fn main() {
             }),
             ..default()
         }))
-        // Disable MSAA as it is incompatible with deferred rendering, use FXAA instead
-        .insert_resource(Msaa::Off)
+        // MSAA is disabled per-camera (Msaa::Off) since it's incompatible with
+        // deferred rendering; FXAA is used instead.
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
-        .insert_resource(GlobalVolume::new(0.2))
+        .insert_resource(GlobalVolume::new(bevy::audio::Volume::Linear(0.2)))
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
-        .add_plugins(EguiPlugin)
+        .add_plugins(EguiPlugin::default())
         .add_plugins(EmbeddedAssetPlugin::default())
-        .add_systems(Startup, set_window_icon)
+        .add_systems(Update, set_window_icon)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
-        .add_systems(Update, (bvh_gizmos, change_depth, spotlight_gizmos, light_gizmos, brick_info))
+        .add_systems(Update, (bvh_gizmos, change_depth, spotlight_gizmos, light_gizmos))
+        // egui UI must run in the primary-context pass under bevy_egui's multi-pass mode
+        .add_systems(EguiPrimaryContextPass, brick_info)
         .run();
 }
 
@@ -94,30 +96,24 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     assets: Res<SceneAssets>,
 ) {
-    commands.spawn(AudioBundle {
-        source: assets.sounds.startup.clone(),
-        ..default()
-    });
+    commands.spawn((
+        AudioPlayer::new(assets.sounds.startup.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 
     // spawn water mesh
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Plane::from_size(1000000.).into()),
-            material: assets.materials.water.clone(),
-            visibility: Visibility::Hidden,
-            ..default()
-        },
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(1000000., 1000000.))),
+        MeshMaterial3d(assets.materials.water.clone()),
+        Visibility::Hidden,
         Water,
     ));
 
     // spawn ground plane
     commands.spawn((
-        PbrBundle {
-            mesh: meshes.add(Plane::from_size(1000000.).into()),
-            material: assets.materials.ground.clone(),
-            visibility: Visibility::Hidden,
-            ..default()
-        },
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(1000000., 1000000.))),
+        MeshMaterial3d(assets.materials.ground.clone()),
+        Visibility::Hidden,
         Ground,
     ));
 }
@@ -130,7 +126,7 @@ fn brick_info(
     mut gizmos: Gizmos,
 ) {
     for save_bvh in bvh_query.iter() {
-        let window = match window_query.get_single() {
+        let window = match window_query.single() {
             Ok(window) => window,
             Err(_) => return,
         };
@@ -141,8 +137,8 @@ fn brick_info(
     
         for (camera, camera_transform) in cameras.iter() {
             let ray = camera.viewport_to_world(camera_transform, mouse_pos);
-    
-            if let Some(ray) = ray {
+
+            if let Ok(ray) = ray {
                 let brick_index = save_bvh.bvh.intersection(ray, &save_bvh.aabbs);
                 if let Some(brick_index) = brick_index {
                     let brick = &save_bvh.save_data.bricks[brick_index];
@@ -154,20 +150,22 @@ fn brick_info(
                         save_bvh.save_data.header2.brick_owners[brick.owner_index as usize - 1].name.as_str()
                     };
 
-                    egui::Window::new("Brick Info").show(contexts.ctx_mut(), |ui| {
-                        ui.label(format!("Brick index: {}", brick_index));
-                        ui.label(format!("Brick position: {:?}", brick.position));
-                        ui.label(format!("Brick size: {:?}", brick.size));
-                        ui.label(format!("Brick asset: {}", asset_name));
-                        ui.label(format!("Brick owner: {}", owner));
-                    });
+                    if let Ok(ctx) = contexts.ctx_mut() {
+                        egui::Window::new("Brick Info").show(ctx, |ui| {
+                            ui.label(format!("Brick index: {}", brick_index));
+                            ui.label(format!("Brick position: {:?}", brick.position));
+                            ui.label(format!("Brick size: {:?}", brick.size));
+                            ui.label(format!("Brick asset: {}", asset_name));
+                            ui.label(format!("Brick owner: {}", owner));
+                        });
+                    }
     
                     let aabb = save_bvh.aabbs[brick_index];
-                    gizmos.cuboid(Transform {
-                        translation: aabb.center.as_vec3(),
-                        rotation: Quat::IDENTITY,
-                        scale: aabb.halfwidths.as_vec3() * 2.0,
-                    }, Color::WHITE);
+                    gizmos.primitive_3d(
+                        &Cuboid { half_size: aabb.halfwidths.as_vec3() },
+                        aabb.center.as_vec3(),
+                        Color::WHITE,
+                    );
                 }
             }
         }
@@ -175,19 +173,28 @@ fn brick_info(
 }
 
 fn set_window_icon(
-    windows: NonSend<WinitWindows>,
+    // WinitWindows is a non-send resource that isn't available until winit has
+    // created the window, so guard it and only run until the icon is set.
+    windows: Option<NonSend<WinitWindows>>,
+    mut done: Local<bool>,
 ) {
+    if *done {
+        return;
+    }
+    let Some(windows) = windows else { return; };
+
     let rgba = icon::ICON.to_vec();
     let icon = Icon::from_rgba(rgba, 32, 32).unwrap();
 
     for window in windows.windows.values() {
         window.set_window_icon(Some(icon.clone()));
     }
+    *done = true;
 }
 
 fn move_water(
     mut query: Query<&mut Transform, With<Water>>,
-    keycode: Res<Input<KeyCode>>,
+    keycode: Res<ButtonInput<KeyCode>>,
     game_state: Res<GameState>,
     time: Res<Time>,
 ) {
@@ -196,9 +203,9 @@ fn move_water(
     }
 
     let mut movement = Vec3::ZERO;
-    if keycode.pressed(KeyCode::I) {
+    if keycode.pressed(KeyCode::KeyI) {
         movement += Vec3::Y;
-    } else if keycode.pressed(KeyCode::K) {
+    } else if keycode.pressed(KeyCode::KeyK) {
         movement += Vec3::NEG_Y;
     }
 
@@ -206,8 +213,8 @@ fn move_water(
         movement *= 10.0;
     }
 
-    let mut transform = query.get_single_mut().unwrap();
-    transform.translation += movement * time.delta_seconds() * 50.0;
+    let Ok(mut transform) = query.single_mut() else { return; };
+    transform.translation += movement * time.delta_secs() * 50.0;
 }
 
 fn pick_path(
@@ -220,10 +227,10 @@ fn pick_path(
             return;
         }
     }
-    let keycode = world.resource::<Input<KeyCode>>();
-    if keycode.just_pressed(KeyCode::L) || keycode.just_pressed(KeyCode::O) {
+    let keycode = world.resource::<ButtonInput<KeyCode>>();
+    if keycode.just_pressed(KeyCode::KeyL) || keycode.just_pressed(KeyCode::KeyO) {
         let (tx, rx) = mpsc::channel();
-        world.insert_non_send_resource(rx);
+        world.insert_non_send(rx);
         thread::spawn(move || {
             tx.send(ask_save_path()).unwrap();
         });
@@ -233,7 +240,7 @@ fn pick_path(
 fn load_brs(
     world: &mut World
 ) {
-    let path_receiver = world.get_non_send_resource::<Receiver<PathBuf>>();
+    let path_receiver = world.get_non_send::<Receiver<PathBuf>>();
     if let Some(path_receiver) = path_receiver {
         let path = path_receiver.try_recv();
         if path.is_err() {
@@ -241,14 +248,14 @@ fn load_brs(
         }
 
         let assets = world.resource::<SceneAssets>();
-        world.spawn(AudioBundle {
-            source: assets.sounds.upload_start.clone(),
-            ..default()
-        });
+        world.spawn((
+            AudioPlayer::new(assets.sounds.upload_start.clone()),
+            PlaybackSettings::DESPAWN,
+        ));
 
         let path = path.unwrap();
         let (tx, rx) = mpsc::channel();
-        world.insert_non_send_resource(rx);
+        world.insert_non_send(rx);
         thread::spawn(move || {
             let save_data = load_save_data(path);
             tx.send(save_data).unwrap();
@@ -294,7 +301,7 @@ fn load_save(
     let material_meshes = generator.gen_mesh();
     let com = generator.center_of_mass();
 
-    if let Ok(mut cam) = cam_query.get_single_mut() {
+    if let Ok(mut cam) = cam_query.single_mut() {
         cam.target = com;
     }
 
@@ -324,10 +331,10 @@ fn load_save(
         com,
     });
 
-    commands.spawn(AudioBundle {
-        source: assets.sounds.upload_end.clone(),
-        ..default()
-    });
+    commands.spawn((
+        AudioPlayer::new(assets.sounds.upload_end.clone()),
+        PlaybackSettings::DESPAWN,
+    ));
 
 }
 
@@ -345,12 +352,9 @@ fn spawn_chunks(
         for _ in 0..10 {
             if let Some(mesh) = chunk_entity.meshes.pop() {
                 commands.spawn((
-                    PbrBundle {
-                        mesh: meshes.add(mesh),
-                        material: chunk_entity.material.clone(),
-                        ..default()
-                    },
-                    ChunkMesh
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(chunk_entity.material.clone()),
+                    ChunkMesh,
                 ));
             }
         }
@@ -408,7 +412,7 @@ fn light_gizmos(
     }
 
     for (light, transform) in &query {
-        gizmos.sphere(transform.translation, transform.rotation, light.radius, light.color);
+        gizmos.sphere(transform.translation, light.radius, light.color);
     }
 }
 
@@ -444,23 +448,23 @@ fn bvh_gizmos (
 fn aabb_gizmos_recursive(bvh: &BVH, node: usize, gizmos: &mut Gizmos, depth: u8, target_depth: u8) {
     let color = match depth {
         0 => Color::WHITE,
-        1 => Color::BLUE,
-        2 => Color::GREEN,
-        3 => Color::YELLOW,
-        4 => Color::MAROON,
-        5 => Color::GOLD,
-        6 => Color::VIOLET,
+        1 => Color::srgb(0.0, 0.0, 1.0),
+        2 => Color::srgb(0.0, 1.0, 0.0),
+        3 => Color::srgb(1.0, 1.0, 0.0),
+        4 => Color::srgb(0.5, 0.0, 0.0),
+        5 => Color::srgb(1.0, 0.84, 0.0),
+        6 => Color::srgb(0.93, 0.51, 0.93),
         _ => Color::WHITE,
     };
 
     match &bvh[node] {
         BVHNode::Internal { aabb, left, right } => {
             if depth == target_depth {
-                gizmos.cuboid(Transform {
-                    translation: aabb.center.as_vec3(),
-                    rotation: Quat::IDENTITY,
-                    scale: aabb.halfwidths.as_vec3() * 2.0,
-                }, color);
+                gizmos.primitive_3d(
+                    &Cuboid { half_size: aabb.halfwidths.as_vec3() },
+                    aabb.center.as_vec3(),
+                    color,
+                );
                 return;
             }
 
@@ -472,17 +476,17 @@ fn aabb_gizmos_recursive(bvh: &BVH, node: usize, gizmos: &mut Gizmos, depth: u8,
 }
 
 fn change_depth(
-    keycode: Res<Input<KeyCode>>,
+    keycode: Res<ButtonInput<KeyCode>>,
     mut game_state: ResMut<GameState>,
 ) {
     match game_state.input {
         InputState::Listen => {
             match &mut game_state.bvh_view {
                 BVHView::On(depth) => {
-                    if keycode.just_pressed(KeyCode::X) {
+                    if keycode.just_pressed(KeyCode::KeyX) {
                         *depth += 1;
                     }
-                    if keycode.just_pressed(KeyCode::Z) {
+                    if keycode.just_pressed(KeyCode::KeyZ) {
                         *depth -= 1;
                     }
                 }

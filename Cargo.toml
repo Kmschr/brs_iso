@@ -11,11 +11,10 @@ brdb = { git = "https://github.com/brickadia-community/brdb" }
 rfd = "0.13"
 dirs = "5.0"
 lazy_static = "1.4"
-bevy_editor_pls = "0.7"
-bevy_embedded_assets = "0.9"
-winit = "0.28"
+bevy_embedded_assets = "0.16"
+winit = "0.30"
 rayon = "1.5"
-bevy_egui = "0.24"
+bevy_egui = "0.41"
 
 # Enable max optimizations for dependencies, but not for our code:
 [profile.dev.package."*"]
@@ -26,9 +25,10 @@ opt-level = 3
 opt-level = 1
 
 [dependencies.bevy]
-version = "0.12"
+version = "0.19"
 default-features = true
 features = [
     "wav",  # Audio: Uncompressed WAV
+    "experimental_pbr_pcss",  # Soft shadows (PCSS) to hide shadow-map texel aliasing
     # "dynamic_linking", # Dynamic linking for faster compile-times (remove before release)
 ]

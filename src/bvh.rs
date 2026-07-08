@@ -1,6 +1,6 @@
 use std::{ops::{Index, Neg}, time::SystemTime};
 
-use bevy::{math::I64Vec3, prelude::*, render::{mesh::Indices, render_resource::PrimitiveTopology}, utils::{HashMap, HashSet}};
+use bevy::{asset::RenderAssetUsages, math::I64Vec3, mesh::Indices, platform::collections::{HashMap, HashSet}, prelude::*, render::render_resource::PrimitiveTopology};
 use rayon::prelude::*;
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
@@ -85,7 +85,7 @@ impl BVH {
         i
     }
 
-    pub fn intersection(&self, ray: Ray, aabbs: &Vec<AABB>) -> Option<usize> {
+    pub fn intersection(&self, ray: Ray3d, aabbs: &Vec<AABB>) -> Option<usize> {
         let mut stack = vec![0];
         while let Some(node) = stack.pop() {
             match &self.arena[node] {
@@ -307,11 +307,11 @@ impl<'a> BVHMeshGenerator<'a> {
         let mut i = 0;
         for chunks in material_chunks.into_iter() {
             for (_, buffers) in chunks.into_iter() {
-                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList);
+                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, buffers.position);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, buffers.color);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, buffers.normal);
-                mesh.set_indices(Some(Indices::U32(buffers.indices)));
+                mesh.insert_indices(Indices::U32(buffers.indices));
                 material_meshes[i].push(mesh);
                 total_chunks += 1;
             }

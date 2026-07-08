@@ -2,8 +2,6 @@ use bevy::prelude::*;
 
 #[derive(Resource, Default)]
 pub struct SceneAssets {
-    pub diffuse_map: Handle<Image>,
-    pub specular_map: Handle<Image>,
     pub materials: Materials,
     pub sounds: Sounds,
 }
@@ -40,33 +38,31 @@ fn load_assets(
     mut materials: ResMut<Assets<StandardMaterial>>) 
 {
     *scene_assets = SceneAssets {
-        diffuse_map: asset_server.load("embedded://environment_maps/pisa_diffuse_rgb9e5_zstd.ktx2"),
-        specular_map: asset_server.load("embedded://environment_maps/pisa_specular_rgb9e5_zstd.ktx2"),
         materials: Materials {
             plastic: materials.add(StandardMaterial {
-                base_color: Color::rgb(0.7, 0.7, 0.7),
+                base_color: Color::srgb(0.7, 0.7, 0.7),
                 perceptual_roughness: 0.8,
                 ..default()
             }),
             glow: materials.add(StandardMaterial {
-                base_color: Color::rgb(1.0, 1.0, 1.0),
+                base_color: Color::srgb(1.0, 1.0, 1.0),
                 perceptual_roughness: 0.8,
                 ..default()
             }),
             glass: materials.add(StandardMaterial {
-                base_color: Color::rgba(0.7, 0.7, 0.7, 0.9),
+                base_color: Color::srgba(0.7, 0.7, 0.7, 0.9),
                 perceptual_roughness: 0.8,
                 alpha_mode: AlphaMode::Premultiplied,
                 ..default()
             }),
             metal: materials.add(StandardMaterial {
-                base_color: Color::rgb(0.7, 0.7, 0.7),
+                base_color: Color::srgb(0.7, 0.7, 0.7),
                 perceptual_roughness: 0.3,
                 metallic: 1.0,
                 ..default()
             }),
             water: materials.add(StandardMaterial {
-                base_color: Color::rgba(0.0, 0.2, 0.4, 0.6),
+                base_color: Color::srgba(0.0, 0.2, 0.4, 0.6),
                 alpha_mode: AlphaMode::Premultiplied,
                 ior: 1.33,
                 reflectance: 0.25,
@@ -74,7 +70,7 @@ fn load_assets(
                 ..default()
             }),
             ground: materials.add(StandardMaterial {
-                base_color: Color::rgb(0.05, 0.25, 0.0),
+                base_color: Color::srgb(0.05, 0.25, 0.0),
                 perceptual_roughness: 0.8,
                 ..default()
             }),

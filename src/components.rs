@@ -8,7 +8,7 @@ const BRIGHTNESS_MULTIPLIER: f32 = 20000.0;
 #[derive(Component)]
 pub struct Light;
 
-pub fn gen_point_lights(save_data: &SaveData) -> Vec<PointLightBundle> {
+pub fn gen_point_lights(save_data: &SaveData) -> Vec<(PointLight, Transform)> {
     if !save_data.components.contains_key("BCD_PointLight") {
         return vec![];
     }
@@ -48,24 +48,23 @@ pub fn gen_point_lights(save_data: &SaveData) -> Vec<PointLightBundle> {
             brick.position.1 as f32,
         );
 
-        point_lights.push(PointLightBundle {
-            point_light: PointLight {
-                color: Color::rgb(color[0], color[1], color[2]),
+        point_lights.push((
+            PointLight {
+                color: Color::srgb(color[0], color[1], color[2]),
                 radius,
                 intensity: brightness * BRIGHTNESS_MULTIPLIER,
                 range: radius * 2.0,
-                shadows_enabled: false,
+                shadow_maps_enabled: false,
                 ..default()
             },
-            transform: Transform::from_translation(translation),
-            ..default()
-        });
+            Transform::from_translation(translation),
+        ));
     }
 
     point_lights
 }
 
-pub fn gen_spot_lights(save_data: &SaveData) -> Vec<SpotLightBundle> {
+pub fn gen_spot_lights(save_data: &SaveData) -> Vec<(SpotLight, Transform)> {
     if !save_data.components.contains_key("BCD_SpotLight") {
         return vec![];
     }
@@ -109,25 +108,24 @@ pub fn gen_spot_lights(save_data: &SaveData) -> Vec<SpotLightBundle> {
         );
 
         let mut transform = Transform::from_translation(translation);
-        transform.rotate_axis(Vec3::Y, (-90f32).to_radians());
+        transform.rotate_axis(Dir3::Y, (-90f32).to_radians());
 
-        transform.rotate_axis(Vec3::Z, rotation.x.to_radians());
-        transform.rotate_axis(Vec3::NEG_Y, rotation.y.to_radians());
+        transform.rotate_axis(Dir3::Z, rotation.x.to_radians());
+        transform.rotate_axis(Dir3::NEG_Y, rotation.y.to_radians());
 
-        spot_lights.push(SpotLightBundle {
-            spot_light: SpotLight {
-                color: Color::rgb(color[0], color[1], color[2]),
+        spot_lights.push((
+            SpotLight {
+                color: Color::srgb(color[0], color[1], color[2]),
                 radius,
                 intensity: brightness * BRIGHTNESS_MULTIPLIER,
                 range: radius * 2.0,
-                shadows_enabled: false,
+                shadow_maps_enabled: false,
                 inner_angle: inner_angle.to_radians(),
                 outer_angle: outer_angle.to_radians(),
                 ..default()
             },
             transform,
-            ..default()
-        });
+        ));
     }
 
     spot_lights

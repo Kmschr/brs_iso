@@ -31,71 +31,68 @@ impl Plugin for ChatPlugin {
     }
 }
 
-fn spawn_chat(
-    mut commands: Commands
-) {
-    commands.spawn((
-        NodeBundle {
-            style: Style {
-                position_type: PositionType::Absolute,
-                bottom: Val::Px(0.0),
-                left: Val::Px(0.0),
-                width: Val::Percent(100.),
-                height: Val::Px(30.),
-                border: UiRect::top(Val::Px(1.)),
-                ..default()
-            },
-            background_color: BackgroundColor(Color::BLACK),
-            border_color: BorderColor(Color::WHITE),
-            visibility: Visibility::Hidden,
-            ..default()
-        },
-        Console
-    )).with_children(|parent| {
-        parent.spawn((
-            TextBundle {
-                visibility: Visibility::Inherited,
-                style: Style {
-                    position_type: PositionType::Absolute,
-                    bottom: Val::Px(10.0),
-                    left: Val::Px(15.0),
-                    ..default()
-                },
-                text: Text::from_sections([
-                    TextSection::new(">", text_style()),
-                    TextSection::new("", text_style()),
-                    TextSection::new("", text_style()),
-                    TextSection::new("", text_style())
-                ]),
-                ..default()
-            },
-            Chat
-        ));
-    });
-}
-
-fn text_style() -> TextStyle {
-    TextStyle {
-        font_size: 14.,
+fn text_font() -> TextFont {
+    TextFont {
+        font_size: FontSize::Px(14.0),
         ..default()
     }
 }
 
+fn spawn_chat(
+    mut commands: Commands
+) {
+    commands.spawn((
+        Node {
+            position_type: PositionType::Absolute,
+            bottom: Val::Px(0.0),
+            left: Val::Px(0.0),
+            width: Val::Percent(100.),
+            height: Val::Px(30.),
+            border: UiRect::top(Val::Px(1.)),
+            ..default()
+        },
+        BackgroundColor(Color::BLACK),
+        BorderColor::all(Color::WHITE),
+        Visibility::Hidden,
+        Console,
+    )).with_children(|parent| {
+        // Chat text: root ">" section, then spans for
+        // [1] input before cursor, [2] cursor, [3] input after cursor.
+        parent.spawn((
+            Text::new(">"),
+            text_font(),
+            TextColor(Color::WHITE),
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: Val::Px(10.0),
+                left: Val::Px(15.0),
+                ..default()
+            },
+            Chat,
+        )).with_children(|text| {
+            text.spawn((TextSpan::new(""), text_font(), TextColor(Color::WHITE)));
+            text.spawn((TextSpan::new(""), text_font(), TextColor(Color::WHITE)));
+            text.spawn((TextSpan::new(""), text_font(), TextColor(Color::WHITE)));
+        });
+    });
+}
+
 fn blink_cursor(
-    mut query: Query<&mut Text, With<Chat>>,
+    chat_query: Query<Entity, With<Chat>>,
+    mut writer: TextUiWriter,
     time: Res<Time>,
     mut timers: ResMut<Timers>,
 ) {
     timers.tenth_second.tick(time.delta());
     timers.half_second.tick(time.delta());
 
-    let mut text = query.get_single_mut().unwrap();
-    if timers.half_second.finished() {
-        let cursor_section = &mut text.sections[2].value;
-        if cursor_section.is_empty() {
-            cursor_section.push('|');
+    let Ok(entity) = chat_query.single() else { return; };
+    if timers.half_second.just_finished() {
+        let mut cursor = writer.text(entity, 2);
+        if cursor.is_empty() {
+            cursor.push('|');
         } else {
-            cursor_section.pop();
+            cursor.pop();
         }
     }
 }
@@ -103,7 +100,7 @@ fn blink_cursor(
 fn enable_chat(
     mut query: Query<&mut Visibility, With<Console>>,
     mut game_state: ResMut<GameState>,
-    keyboard: ResMut<Input<KeyCode>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
 ) {
     match game_state.input {
         InputState::Listen => {
@@ -118,16 +115,16 @@ fn enable_chat(
 
     for mut visibility in query.iter_mut() {
         *visibility = Visibility::Visible;
-    }    
+    }
 
     game_state.input = InputState::Typing;
 }
 
 fn keyboard_system(
-    mut text_query: Query<&mut Text, With<Chat>>,
+    chat_query: Query<Entity, With<Chat>>,
+    mut writer: TextUiWriter,
     mut console_query: Query<&mut Visibility, With<Console>>,
-    keyboard: Res<Input<KeyCode>>,
-    mut rd: EventReader<KeyboardInput>,
+    mut rd: MessageReader<KeyboardInput>,
     mut game_state: ResMut<GameState>,
     mut commands: Commands,
     mesh_query: Query<Entity, With<ChunkMesh>>,
@@ -142,148 +139,121 @@ fn keyboard_system(
         return;
     }
 
-    let mut text = text_query.get_single_mut().unwrap();
+    let Ok(entity) = chat_query.single() else { return; };
 
     for ev in rd.read() {
         if ev.state != ButtonState::Pressed {
             continue;
         }
-        if let Some(key) = ev.key_code {
-            match key {
-                KeyCode::Escape => {
-                    game_state.input = InputState::Listen;
-                    for mut visibility in console_query.iter_mut() {
-                        *visibility = Visibility::Hidden;
-                    }
-                    text.sections[1].value = String::new();
-                    text.sections[3].value = String::new();
-                },
-                KeyCode::Back => {
-                    text.sections[1].value.pop();
-                },
-                KeyCode::Left => {
-                    let char = text.sections[1].value.pop().unwrap_or_default();
-                    text.sections[3].value.insert(0, char);
-                },
-                KeyCode::Right => {
-                    if !text.sections[3].value.is_empty() {
-                        let char = text.sections[3].value.remove(0);
-                        text.sections[1].value.push(char);
-                    }
-                },
-                KeyCode::Space => {
-                    text.sections[1].value.push(' ');
-                },
-                KeyCode::Tab => {
-                    text.sections[1].value.push_str("    ");
-                },
-                KeyCode::Slash => {
-                    text.sections[1].value.push('/');
-                },
-                KeyCode::Underline => {
-                    text.sections[1].value.push('_');
-                },
-                KeyCode::Period => {
-                    text.sections[1].value.push('.');
-                },
-                KeyCode::Return => {
-                    let command = format!("{}{}", text.sections[1].value, text.sections[3].value);
+        match ev.key_code {
+            KeyCode::Escape => {
+                game_state.input = InputState::Listen;
+                for mut visibility in console_query.iter_mut() {
+                    *visibility = Visibility::Hidden;
+                }
+                writer.text(entity, 1).clear();
+                writer.text(entity, 3).clear();
+            },
+            KeyCode::Backspace => {
+                writer.text(entity, 1).pop();
+            },
+            KeyCode::ArrowLeft => {
+                if let Some(c) = writer.text(entity, 1).pop() {
+                    writer.text(entity, 3).insert(0, c);
+                }
+            },
+            KeyCode::ArrowRight => {
+                if !writer.text(entity, 3).is_empty() {
+                    let c = writer.text(entity, 3).remove(0);
+                    writer.text(entity, 1).push(c);
+                }
+            },
+            KeyCode::Enter => {
+                let before = writer.text(entity, 1).clone();
+                let after = writer.text(entity, 3).clone();
+                let command = format!("{before}{after}");
 
-                    match command.as_str() {
-                        "/clear" | "/clearbricks" | "/clearallbricks" => {
-                            commands.spawn(AudioBundle {
-                                source: assets.sounds.clear_bricks.clone(),
-                                ..default()
-                            }); 
-                            for entity in mesh_query.iter() {
-                                commands.entity(entity).despawn();
-                            }
-                            for (entity, _) in light_query.iter() {
-                                commands.entity(entity).despawn();
-                            }
-                            for entity in bvh_query.iter() {
-                                commands.entity(entity).despawn();
-                            }
-                        },
-                        "/water" => {
-                            let mut visibility = water_query.get_single_mut().unwrap();
-                            match *visibility {
-                                Visibility::Hidden => {
-                                    *visibility = Visibility::Visible;
-                                },
-                                Visibility::Visible => {
-                                    *visibility = Visibility::Hidden;
-                                },
-                                _ => {}
-                            }
-                        },
-                        "/ground" => {
-                            let mut visibility = ground_query.get_single_mut().unwrap();
-                            match *visibility {
-                                Visibility::Hidden => {
-                                    *visibility = Visibility::Visible;
-                                },
-                                Visibility::Visible => {
-                                    *visibility = Visibility::Hidden;
-                                },
-                                _ => {}
-                            }
-                        },
-                        "/bvh" => {
-                            match game_state.bvh_view {
-                                BVHView::Off => {
-                                    info!("Toggled BVH On");
-                                    game_state.bvh_view = BVHView::On(0);
-                                },
-                                BVHView::On(_) => {
-                                    info!("Toggled BVH Off");
-                                    game_state.bvh_view = BVHView::Off;
-                                }
-                            }
-                        },
-                        "/shadows" => {
-                            let mut sun = sun_query.get_single_mut().unwrap();
-                            sun.shadows_enabled = !sun.shadows_enabled;
-                        },
-                        "/lights" => {
-                            for (_, mut visibility) in light_query.iter_mut() {
-                                match *visibility {
-                                    Visibility::Hidden => {
-                                        *visibility = Visibility::Visible;
-                                    },
-                                    Visibility::Visible => {
-                                        *visibility = Visibility::Hidden;
-                                    },
-                                    _ => {}
-                                }
-                            }
-                        },
-                        "/debuglights" | "/lightdebug" => {
-                            game_state.light_debug = !game_state.light_debug;
+                match command.as_str() {
+                    "/clear" | "/clearbricks" | "/clearallbricks" => {
+                        commands.spawn((
+                            AudioPlayer::new(assets.sounds.clear_bricks.clone()),
+                            PlaybackSettings::DESPAWN,
+                        ));
+                        for entity in mesh_query.iter() {
+                            commands.entity(entity).despawn();
                         }
-                        _ => {}
+                        for (entity, _) in light_query.iter() {
+                            commands.entity(entity).despawn();
+                        }
+                        for entity in bvh_query.iter() {
+                            commands.entity(entity).despawn();
+                        }
+                    },
+                    "/water" => {
+                        if let Ok(mut visibility) = water_query.single_mut() {
+                            toggle_visibility(&mut visibility);
+                        }
+                    },
+                    "/ground" => {
+                        if let Ok(mut visibility) = ground_query.single_mut() {
+                            toggle_visibility(&mut visibility);
+                        }
+                    },
+                    "/bvh" => {
+                        match game_state.bvh_view {
+                            BVHView::Off => {
+                                info!("Toggled BVH On");
+                                game_state.bvh_view = BVHView::On(0);
+                            },
+                            BVHView::On(_) => {
+                                info!("Toggled BVH Off");
+                                game_state.bvh_view = BVHView::Off;
+                            }
+                        }
+                    },
+                    "/shadows" => {
+                        if let Ok(mut sun) = sun_query.single_mut() {
+                            sun.shadow_maps_enabled = !sun.shadow_maps_enabled;
+                        }
+                    },
+                    "/lights" => {
+                        for (_, mut visibility) in light_query.iter_mut() {
+                            toggle_visibility(&mut visibility);
+                        }
+                    },
+                    "/debuglights" | "/lightdebug" => {
+                        game_state.light_debug = !game_state.light_debug;
                     }
+                    _ => {}
+                }
 
-                    text.sections[1].value = String::new();
-                    text.sections[3].value = String::new();
-                    game_state.input = InputState::Listen;
+                writer.text(entity, 1).clear();
+                writer.text(entity, 3).clear();
+                game_state.input = InputState::Listen;
 
-                    for mut visibility in console_query.iter_mut() {
-                        *visibility = Visibility::Hidden;
+                for mut visibility in console_query.iter_mut() {
+                    *visibility = Visibility::Hidden;
+                }
+            },
+            _ => {
+                // Printable characters come through the event's `text` field,
+                // already accounting for keyboard layout and shift state.
+                if let Some(text) = &ev.text {
+                    for c in text.chars() {
+                        if !c.is_control() {
+                            writer.text(entity, 1).push(c);
+                        }
                     }
-                },
-                _ => {
-                    let mut key = format!("{:?}", key);
-                    if key.len() > 1 {
-                        continue;
-                    }
-    
-                    if !keyboard.pressed(KeyCode::ShiftLeft) && !keyboard.pressed(KeyCode::ShiftRight) {
-                        key = key.to_lowercase();
-                    };
-                    text.sections[1].value.push_str(&key);
                 }
             }
         }
     }
+}
+
+fn toggle_visibility(visibility: &mut Visibility) {
+    *visibility = match *visibility {
+        Visibility::Hidden => Visibility::Visible,
+        Visibility::Visible => Visibility::Hidden,
+        Visibility::Inherited => Visibility::Hidden,
+    };
 }
