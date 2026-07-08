@@ -1,6 +1,6 @@
 use std::{ops::{Index, Neg}, time::SystemTime};
 
-use bevy::{asset::RenderAssetUsages, math::I64Vec3, mesh::Indices, platform::collections::{HashMap, HashSet}, prelude::*, render::render_resource::PrimitiveTopology};
+use bevy::{asset::RenderAssetUsages, math::I64Vec3, mesh::Indices, platform::collections::HashMap, prelude::*, render::render_resource::PrimitiveTopology};
 use rayon::prelude::*;
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
@@ -56,26 +56,27 @@ pub struct BVH {
 }
 
 impl BVH {
-    fn new(indices: Vec<usize>, aabbs: &Vec<AABB>) -> Self {
-        let mut bvh = Self { 
+    fn new(mut indices: Vec<usize>, aabbs: &[AABB]) -> Self {
+        let mut bvh = Self {
             arena: Vec::with_capacity(indices.len() * 2)
         };
-        bvh.top_down_bv_tree(indices, aabbs);
+        if !indices.is_empty() {
+            bvh.top_down_bv_tree(&mut indices, aabbs);
+        }
         bvh
     }
 
-    fn top_down_bv_tree(&mut self, mut brick_indices: Vec<usize>, aabbs: &Vec<AABB>) -> usize {
+    fn top_down_bv_tree(&mut self, brick_indices: &mut [usize], aabbs: &[AABB]) -> usize {
         let i = self.arena.len();
-        if brick_indices.len() <= 1 {
-            let brick_index = brick_indices.pop().unwrap();
+        if let [brick_index] = *brick_indices {
             self.arena.push(BVHNode::Leaf { i: brick_index });
         } else {
-            let (k, aabb) = partition_bricks(&mut brick_indices, aabbs);
-            let (left_bricks, right_bricks) = brick_indices.split_at(k);
+            let (k, aabb) = partition_bricks(brick_indices, aabbs);
             self.arena.push(BVHNode::Internal { aabb, left: 0, right: 0 });
 
-            let left_idx = self.top_down_bv_tree(left_bricks.to_vec(), aabbs);
-            let right_idx = self.top_down_bv_tree(right_bricks.to_vec(), aabbs);
+            let (left_bricks, right_bricks) = brick_indices.split_at_mut(k);
+            let left_idx = self.top_down_bv_tree(left_bricks, aabbs);
+            let right_idx = self.top_down_bv_tree(right_bricks, aabbs);
 
             if let BVHNode::Internal { left, right, .. } = &mut self.arena[i] {
                 *left = left_idx;
@@ -119,7 +120,7 @@ pub enum BVHNode {
     Internal { aabb: AABB, left: usize, right: usize }
 }
 
-fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB) {
+fn partition_bricks(indices: &mut [usize], aabbs: &[AABB]) -> (usize, AABB) {
     // calculate volume containing all sub-volumes
     let mut min = aabbs[indices[0]].center;
     let mut max = aabbs[indices[0]].center;
@@ -153,16 +154,19 @@ fn partition_bricks(indices: &mut Vec<usize>, aabbs: &Vec<AABB>) -> (usize, AABB
         halfwidths
     };
 
-    // cut based on longest axis
-    if aabb.halfwidths.x > aabb.halfwidths.y && aabb.halfwidths.x > aabb.halfwidths.z {
-        indices.sort_unstable_by_key(|i| aabbs[*i].center.x);
-    } else if aabb.halfwidths.y > aabb.halfwidths.x && aabb.halfwidths.y > aabb.halfwidths.z {
-        indices.sort_unstable_by_key(|i| aabbs[*i].center.y);
+    // split at the median along the longest axis; a full sort is wasted work
+    // when only the median partition is needed
+    let k = indices.len() / 2;
+    let hw = aabb.halfwidths;
+    if hw.x >= hw.y && hw.x >= hw.z {
+        indices.select_nth_unstable_by_key(k, |i| aabbs[*i].center.x);
+    } else if hw.y >= hw.z {
+        indices.select_nth_unstable_by_key(k, |i| aabbs[*i].center.y);
     } else {
-        indices.sort_unstable_by_key(|i| aabbs[*i].center.z);
+        indices.select_nth_unstable_by_key(k, |i| aabbs[*i].center.z);
     }
-    
-    (indices.len() / 2, aabb)
+
+    (k, aabb)
 }
 
 pub struct Buffers {
@@ -209,20 +213,22 @@ impl<'a> BVHMeshGenerator<'a> {
 
     pub fn gen_mesh(&self) -> Vec<Vec<Mesh>> {
         let now = SystemTime::now();
-        let hidden: Vec<(usize, usize)> = self.save_data.bricks.par_iter().enumerate()
-            .filter_map(|(i, _)| {
-                if !&self.save_data.bricks[i].visibility || self.faces[i].len() == 0 {
-                    None
-                } else {
-                    let mut neighbors = vec![];
-                    self.traverse_neighbors(i, &mut neighbors);
-                    Some(self.cull_faces(i, neighbors))
-                }
-            })
-            .flatten()
+        // Hidden faces as a bitmask per brick (bricks have at most 9 faces).
+        // map_init reuses the neighbor scratch buffers per rayon worker instead
+        // of reallocating them for every brick.
+        let hidden_masks: Vec<u16> = self.save_data.bricks.par_iter().enumerate()
+            .map_init(
+                || (Vec::new(), HashMap::default()),
+                |(neighbors, neighbor_faces), (i, brick)| {
+                    if !brick.visibility || self.faces[i].is_empty() {
+                        return 0;
+                    }
+                    neighbors.clear();
+                    self.traverse_neighbors(i, neighbors);
+                    self.cull_faces(i, neighbors, neighbor_faces)
+                },
+            )
             .collect();
-        // convert vec to hashset for faster lookup
-        let hidden: HashSet<(usize, usize)> = hidden.into_iter().collect();
         info!("Culled faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
         let now = SystemTime::now();
@@ -255,12 +261,9 @@ impl<'a> BVHMeshGenerator<'a> {
             let material = material_map[self.save_data.bricks[i].material_index as usize];
 
             let chunk_coordinates = self.aabbs[i].center / CHUNK_SIZE;
-            let chunks = &mut material_chunks[material];
-            if !chunks.contains_key(&chunk_coordinates) {
-                chunks.insert(chunk_coordinates.clone(), Buffers::new());
-            }
-
-            let buffers = chunks.get_mut(&chunk_coordinates).unwrap();
+            let buffers = material_chunks[material]
+                .entry(chunk_coordinates)
+                .or_insert_with(Buffers::new);
 
             let color = &self.save_data.bricks[i].color;
             let color = match color {
@@ -269,7 +272,7 @@ impl<'a> BVHMeshGenerator<'a> {
             };
     
             for j in 0..brick_faces.len() {
-                if hidden.contains(&(i, j)) {
+                if hidden_masks[i] & (1 << j) != 0 {
                     continue;
                 }
 
@@ -328,29 +331,28 @@ impl<'a> BVHMeshGenerator<'a> {
         (weighted_sum / total_mass).as_vec3()
     }
 
-    fn cull_faces(&self, target: usize, neighbors: Vec<usize>) -> Vec<(usize, usize)> {
-        let mut hidden: Vec<(usize, usize)> = Vec::new();
-        let mut neighbor_faces: HashMap<IVec3, Vec<(usize, usize)>> = HashMap::new();
-        for i in neighbors {
-            for j in 0..self.faces[i].len() {
-                let face = &self.faces[i][j];
-                let int_normal = (face.normal * 100.0).as_ivec3();
-                neighbor_faces.entry(int_normal).or_insert_with(Vec::new).push((i, j));
+    fn cull_faces(
+        &self,
+        target: usize,
+        neighbors: &[usize],
+        neighbor_faces: &mut HashMap<IVec3, Vec<(usize, usize)>>,
+    ) -> u16 {
+        neighbor_faces.clear();
+        for &i in neighbors {
+            for (j, face) in self.faces[i].iter().enumerate() {
+                neighbor_faces.entry(face.int_normal).or_default().push((i, j));
             }
         }
 
-        for j in 0..self.faces[target].len() {
-            let face = &self.faces[target][j];
-            let int_normal = (face.normal * 100.0).as_ivec3().neg();
-            let opposite_faces = &neighbor_faces.get(&int_normal);
-            if opposite_faces.is_none() {
+        let mut hidden = 0u16;
+        for (j, face) in self.faces[target].iter().enumerate() {
+            let Some(coplanar_faces) = neighbor_faces.get(&face.int_normal.neg()) else {
                 continue;
-            }
-            let coplanar_faces = opposite_faces.unwrap();
-            for (other_i, other_j) in coplanar_faces {
-                let other = &self.faces[*other_i][*other_j];
+            };
+            for &(other_i, other_j) in coplanar_faces {
+                let other = &self.faces[other_i][other_j];
                 if face.inside(other) {
-                    hidden.push((target, j));
+                    hidden |= 1 << j;
                     break;
                 }
             }
@@ -384,40 +386,49 @@ impl<'a> BVHMeshGenerator<'a> {
 
 fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
     let now = SystemTime::now();
+
+    // Resolve the shape constructor and fixed size once per asset instead of
+    // string-matching per brick.
+    let asset_shapes: Vec<(fn(Vec3) -> Vec<Face>, Option<Vec3>)> = save_data.header2.brick_assets.iter()
+        .map(|asset| {
+            let shape_fn: fn(Vec3) -> Vec<Face> = match asset.as_str() {
+                "PB_DefaultWedge" => default_wedge,
+                "PB_DefaultRampInnerCorner" => ramp_inner_corner,
+                "PB_DefaultRampCrest" => ramp_crest,
+                "PB_DefaultRampCorner" => ramp_corner,
+                "PB_DefaultMicroWedgeInnerCorner" => microwedge_inner_corner,
+                "PB_DefaultMicroWedgeCorner" => microwedge_corner,
+                "PB_DefaultMicroWedgeHalfOuterCorner" => microwedge_half_outer_corner,
+                "PB_DefaultMicroWedgeHalfInnerCornerInverted" => microwedge_half_inner_corner_inverted,
+                "PB_DefaultMicroWedgeHalfInnerCorner" => microwedge_half_inner_corner,
+                "PB_DefaultMicroWedgeOuterCorner" => microwedge_outer_corner,
+                "PB_DefaultMicroWedgeTriangleCorner" => microwedge_triangle_corner,
+                "PB_DefaultRamp" => ramp,
+                "PB_DefaultMicroWedge" | "PB_DefaultSideWedgeTile" | "PB_DefaultSideWedge" => side_wedge,
+                _ => standard_brick,
+            };
+            let fixed_size = BRICK_SIZE_MAP.get(asset.as_str())
+                .map(|&(w, l, h)| Vec3::new(w as f32, h as f32, l as f32));
+            (shape_fn, fixed_size)
+        })
+        .collect();
+
     let mut data = Vec::with_capacity(save_data.bricks.len());
 
     data.par_extend(save_data.bricks.par_iter().map(|brick| {
         let mut brick_faces = Vec::new();
 
         if brick.visibility {
-            let brick_asset = &save_data.header2.brick_assets[brick.asset_name_index as usize];
+            let (shape_fn, fixed_size) = &asset_shapes[brick.asset_name_index as usize];
             let size = match brick.size {
                 Size::Procedural(w, l, h) => Vec3::new(w as f32, h as f32, l as f32),
-                Size::Empty => {
-                    if let Some(&(w, l, h)) = BRICK_SIZE_MAP.get(brick_asset.as_str()) {
-                        Vec3::new(w as f32, h as f32, l as f32)
-                    } else {
-                        return brick_faces;
-                    }
+                Size::Empty => match fixed_size {
+                    Some(size) => *size,
+                    None => return brick_faces,
                 }
             };
 
-            brick_faces = match brick_asset.as_str() {
-                "PB_DefaultWedge" => default_wedge(size),
-                "PB_DefaultRampInnerCorner" => ramp_inner_corner(size),
-                "PB_DefaultRampCrest" => ramp_crest(size),
-                "PB_DefaultRampCorner" => ramp_corner(size),
-                "PB_DefaultMicroWedgeInnerCorner" => microwedge_inner_corner(size),
-                "PB_DefaultMicroWedgeCorner" => microwedge_corner(size),
-                "PB_DefaultMicroWedgeHalfOuterCorner" => microwedge_half_outer_corner(size),
-                "PB_DefaultMicroWedgeHalfInnerCornerInverted" => microwedge_half_inner_corner_inverted(size),
-                "PB_DefaultMicroWedgeHalfInnerCorner" => microwedge_half_inner_corner(size),
-                "PB_DefaultMicroWedgeOuterCorner" => microwedge_outer_corner(size),
-                "PB_DefaultMicroWedgeTriangleCorner" => microwedge_triangle_corner(size),
-                "PB_DefaultRamp" => ramp(size),
-                "PB_DefaultMicroWedge" | "PB_DefaultSideWedgeTile" | "PB_DefaultSideWedge" => side_wedge(size),
-                _ => standard_brick(size)
-            };
+            brick_faces = shape_fn(size);
 
             let brick_position = brick_pos(brick);
             for face in &mut brick_faces {
@@ -450,9 +461,7 @@ fn gen_faces(save_data: &SaveData) -> Vec<Vec<Face>> {
 fn gen_aabbs(save_data: &SaveData) -> Vec<AABB> {
     let now = SystemTime::now();
     let mut aabbs = Vec::with_capacity(save_data.bricks.len());
-    for brick in &save_data.bricks {
-        aabbs.push(AABB::from_brick(brick, save_data));
-    }
+    aabbs.par_extend(save_data.bricks.par_iter().map(|brick| AABB::from_brick(brick, save_data)));
     info!("Generated AABBs in {} seconds", now.elapsed().unwrap().as_secs_f32());
     aabbs
 }

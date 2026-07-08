@@ -46,14 +46,14 @@ pub struct Face {
     pub verts: Vec<Vec3>,
     pub verts_2d: Vec<Vec2>,
     pub normal: Vec3,
+    // normal quantized to integers, used as a grouping key during face culling
+    pub int_normal: IVec3,
 }
 
 impl Face {
     pub fn new(verts: Vec<Vec3>) -> Self {
-        let verts_2d = Vec::with_capacity(verts.len());
         Face {
             verts,
-            verts_2d,
             ..default()
         }
     }
@@ -70,23 +70,19 @@ impl Face {
         let normal = ((normal * 10.).as_ivec3().as_vec3() / 10.).normalize();
 
         self.normal = normal;
+        self.int_normal = (normal * 100.).as_ivec3();
     }
 
     pub fn calc_2d(&mut self) {
+        let v = Vec3::new(666.0, 69.0, 420.0);
+
+        // Calculate the cross product U = N X V
+        let u = self.normal.abs().cross(v).normalize();
+        let v = v.normalize();
+
+        self.verts_2d.reserve_exact(self.verts.len());
         for p in &self.verts {
-            let v = Vec3::new(666.0, 69.0, 420.0);
-
-            // Calculate the cross product U = N X V
-            let u = self.normal.abs().cross(v);
-
-            // Normalize V and U
-            let u = u.normalize();
-            let v = v.normalize();
-
-            let x = u.dot(*p);
-            let y = v.dot(*p);
-
-            self.verts_2d.push(Vec2::new(x, y));
+            self.verts_2d.push(Vec2::new(u.dot(*p), v.dot(*p)));
         }
     }
 
