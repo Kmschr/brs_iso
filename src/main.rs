@@ -84,6 +84,18 @@ struct LoadPromptText;
 const SPINNER_FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
 const LOAD_PROMPT_IDLE: &str = "Press L to load a build";
 
+// Bottom-left controls hint, shown once a build is loaded.
+#[derive(Component)]
+struct ControlsHint;
+
+const CONTROLS_HINT: &str = "\
+WASD  move
+Q / E or right-drag  rotate
+scroll  zoom
+shift  faster
+H  recenter
+F2  screenshot";
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -167,6 +179,23 @@ fn setup(
         TextFont { font_size: FontSize::Px(28.0), ..default() },
         TextColor(Color::WHITE),
     ));
+
+    // Controls hint, bottom-left; hidden until a build is loaded.
+    commands.spawn((
+        ControlsHint,
+        state::HideOnScreenshot,
+        Visibility::Hidden,
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(12.),
+            bottom: Val::Px(12.),
+            ..default()
+        },
+        Pickable::IGNORE,
+        Text::new(CONTROLS_HINT),
+        TextFont { font_size: FontSize::Px(14.0), ..default() },
+        TextColor(Color::srgba(1., 1., 1., 0.65)),
+    ));
 }
 
 // Drive the centered prompt: hidden once a build is loaded, an animated spinner
@@ -175,11 +204,16 @@ fn toggle_load_prompt(
     build_loaded: Res<state::BuildLoaded>,
     loading: Res<state::Loading>,
     time: Res<Time>,
-    mut prompt: Query<&mut Visibility, With<LoadPrompt>>,
+    mut prompt: Query<&mut Visibility, (With<LoadPrompt>, Without<ControlsHint>)>,
     mut label: Query<&mut Text, With<LoadPromptText>>,
+    mut controls: Query<&mut Visibility, (With<ControlsHint>, Without<LoadPrompt>)>,
 ) {
     let Ok(mut vis) = prompt.single_mut() else { return; };
     let Ok(mut text) = label.single_mut() else { return; };
+
+    if let Ok(mut cvis) = controls.single_mut() {
+        *cvis = if build_loaded.0 { Visibility::Visible } else { Visibility::Hidden };
+    }
 
     if build_loaded.0 {
         *vis = Visibility::Hidden;
