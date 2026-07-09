@@ -439,15 +439,25 @@ fn poll_gen_task(
     let LoadedBuild { save_data, material_meshes, com, bvh, aabbs } = loaded;
 
     let point_lights = gen_point_lights(&save_data);
+    let spot_lights = gen_spot_lights(&save_data);
+
+    // Big builds can have thousands of lights that tank the framerate, so start
+    // them hidden past a threshold; `/lights` toggles them back on.
+    let total_lights = point_lights.len() + spot_lights.len();
+    let visibility = if total_lights > 1000 {
+        Visibility::Hidden
+    } else {
+        Visibility::Visible
+    };
+
     info!("Spawning {} point lights", point_lights.len());
     for light in point_lights {
-        commands.spawn((light, Light));
+        commands.spawn((light, Light, visibility));
     }
 
-    let spot_lights = gen_spot_lights(&save_data);
     info!("Spawning {} spot lights", spot_lights.len());
     for light in spot_lights {
-        commands.spawn((light, Light));
+        commands.spawn((light, Light, visibility));
     }
 
     if let Ok(mut cam) = cam_query.single_mut() {
