@@ -94,7 +94,8 @@ Q / E or right-drag  rotate
 scroll  zoom
 shift  faster
 H  recenter
-F2  screenshot";
+F2  screenshot
+F3  hi-res screenshot";
 
 fn main() {
     App::new()

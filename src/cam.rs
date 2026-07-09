@@ -1,4 +1,4 @@
-use bevy::{anti_alias::fxaa::Fxaa, camera::ScalingMode, core_pipeline::prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, input::mouse::{MouseMotion, MouseWheel}, light::cluster::ClusterConfig, prelude::*, render::view::screenshot::{save_to_disk, Screenshot}};
+use bevy::{anti_alias::fxaa::Fxaa, camera::{RenderTarget, ScalingMode}, core_pipeline::prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, input::mouse::{MouseMotion, MouseWheel}, light::cluster::ClusterConfig, prelude::*, render::render_resource::TextureFormat, render::view::screenshot::{save_to_disk, Screenshot}, window::PrimaryWindow};
 
 use crate::{bvh::BVHNode, state::{GameState, HideOnScreenshot, Screenshotting}, SaveBVH};
 
@@ -24,7 +24,8 @@ impl Plugin for IsoCameraPlugin {
         app
             .add_systems(Startup, spawn_camera)
             .init_resource::<ScreenshotSeq>()
-            .add_systems(Update, (screenshot_sequence, move_cam_keyboard, move_cam_mouse, jump_home, update_transform, rotate_keyboard, rotate_mouse))
+            .init_resource::<HiResShot>()
+            .add_systems(Update, (screenshot_sequence, hires_screenshot_sequence, move_cam_keyboard, move_cam_mouse, jump_home, update_transform, rotate_keyboard, rotate_mouse))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -123,6 +124,155 @@ fn screenshot_sequence(
             }
             screenshotting.0 = false;
             seq.phase = ShotPhase::Idle;
+        }
+    }
+}
+
+// Supersample factor for F3 high-res captures. The output image is up to this
+// many times the window's pixel dimensions, so a 4x shot of a 1080p window is
+// ~7680x4320 (8K). Framing matches the live view; you just get more pixels.
+const HIRES_SCALE: f32 = 4.0;
+// wgpu's default `max_texture_dimension_2d`. Larger targets fail to allocate, so
+// the effective scale is clamped to keep both dimensions within this bound.
+const HIRES_MAX_DIM: u32 = 8192;
+
+// Frames to let the temp camera render before capturing. Needs to cover render
+// pipeline *specialization*: the first frames a camera renders to a new target,
+// its mesh/deferred pipelines compile asynchronously and geometry is skipped
+// (renders black) until they're ready. Matching the window's texture format
+// keeps this cheap (pipelines are shared), but a margin is still needed.
+const HIRES_WARMUP_FRAMES: u8 = 24;
+
+#[derive(Default)]
+enum HiResPhase {
+    #[default]
+    Idle,
+    Warmup(u8),
+    Capture,
+    // Screenshot requested; keep the camera rendering and the image asset alive
+    // until GPU readback lands, then tear everything down.
+    Draining(u8),
+}
+
+#[derive(Resource, Default)]
+struct HiResShot {
+    phase: HiResPhase,
+    counter: u32,
+    image: Option<Handle<Image>>,
+    cam: Option<Entity>,
+    saved: Vec<(Entity, Visibility)>,
+}
+
+// F3 renders the scene to an off-screen texture larger than the window, then
+// screenshots that texture — yielding resolutions above the monitor's. A short
+// clone of the live camera (same transform + orthographic projection + deferred
+// prepass stack) targets the image so the framing is identical to what's on
+// screen, only sharper.
+fn hires_screenshot_sequence(
+    input: Res<ButtonInput<KeyCode>>,
+    mut commands: Commands,
+    mut shot: ResMut<HiResShot>,
+    mut screenshotting: ResMut<Screenshotting>,
+    mut overlays: Query<(Entity, &mut Visibility), With<HideOnScreenshot>>,
+    mut images: ResMut<Assets<Image>>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    main_cam: Query<(&Transform, &Projection), With<IsoCamera>>,
+) {
+    match shot.phase {
+        HiResPhase::Idle => {
+            if !input.just_pressed(KeyCode::F3) {
+                return;
+            }
+            let Ok(window) = windows.single() else { return };
+            let Ok((cam_transform, cam_projection)) = main_cam.single() else { return };
+
+            let (w, h) = (window.physical_width().max(1), window.physical_height().max(1));
+            // Uniform scale preserves aspect ratio while keeping both dimensions
+            // under the GPU's max texture size.
+            let scale = HIRES_SCALE
+                .min(HIRES_MAX_DIM as f32 / w as f32)
+                .min(HIRES_MAX_DIM as f32 / h as f32);
+            let width = ((w as f32 * scale) as u32).max(1);
+            let height = ((h as f32 * scale) as u32).max(1);
+
+            // Match the window swapchain format so the scene's already-compiled
+            // render pipelines are reused instead of re-specialized (which would
+            // render black for the first frames). Bgra8UnormSrgb is the standard
+            // swapchain format on desktop.
+            let image = images.add(Image::new_target_texture(
+                width,
+                height,
+                TextureFormat::Bgra8UnormSrgb,
+                None,
+            ));
+
+            // Mirror the live camera's rendering stack so the off-screen render
+            // matches on-screen output (deferred + FXAA + per-view ambient).
+            let cam = commands
+                .spawn((
+                    Camera3d::default(),
+                    RenderTarget::Image(image.clone().into()),
+                    cam_projection.clone(),
+                    *cam_transform,
+                    AmbientLight {
+                        color: Color::WHITE,
+                        brightness: 600.0,
+                        ..default()
+                    },
+                    Msaa::Off,
+                    ClusterConfig::Single,
+                    DepthPrepass,
+                    MotionVectorPrepass,
+                    DeferredPrepass,
+                    Fxaa::default(),
+                ))
+                .id();
+
+            shot.saved.clear();
+            for (entity, mut vis) in overlays.iter_mut() {
+                shot.saved.push((entity, *vis));
+                *vis = Visibility::Hidden;
+            }
+            shot.image = Some(image);
+            shot.cam = Some(cam);
+            screenshotting.0 = true;
+            shot.phase = HiResPhase::Warmup(HIRES_WARMUP_FRAMES);
+        }
+        HiResPhase::Warmup(n) => {
+            shot.phase = if n > 0 { HiResPhase::Warmup(n - 1) } else { HiResPhase::Capture };
+        }
+        HiResPhase::Capture => {
+            // The temp camera is still alive and renders into the image this frame;
+            // the screenshot copy runs after the render graph, so it reads fresh
+            // pixels rather than a stale or cleared texture.
+            if let Some(image) = shot.image.clone() {
+                let path = format!("./screenshot-hires-{}.png", shot.counter);
+                shot.counter += 1;
+                commands
+                    .spawn(Screenshot::image(image))
+                    .observe(save_to_disk(path));
+            }
+            shot.phase = HiResPhase::Draining(8);
+        }
+        HiResPhase::Draining(n) => {
+            if n > 0 {
+                shot.phase = HiResPhase::Draining(n - 1);
+            } else {
+                // Readback done: despawn the temp camera, free the image, restore UI.
+                if let Some(cam) = shot.cam.take() {
+                    commands.entity(cam).despawn();
+                }
+                if let Some(image) = shot.image.take() {
+                    images.remove(&image);
+                }
+                for (entity, vis) in shot.saved.drain(..) {
+                    if let Ok((_, mut current)) = overlays.get_mut(entity) {
+                        *current = vis;
+                    }
+                }
+                screenshotting.0 = false;
+                shot.phase = HiResPhase::Idle;
+            }
         }
     }
 }
