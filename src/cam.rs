@@ -1,6 +1,6 @@
 use bevy::{anti_alias::fxaa::Fxaa, camera::ScalingMode, core_pipeline::prepass::{MotionVectorPrepass, DepthPrepass, DeferredPrepass}, input::mouse::{MouseMotion, MouseWheel}, light::cluster::ClusterConfig, prelude::*, render::view::screenshot::{save_to_disk, Screenshot}};
 
-use crate::{bvh::BVHNode, state::GameState, SaveBVH};
+use crate::{bvh::BVHNode, state::{GameState, HideOnScreenshot, Screenshotting}, SaveBVH};
 
 const DEFAULT_CAMERA_ZOOM: f32 = 800.0;
 const ISO_SCALING_MODE: f32 = 2.0;
@@ -23,7 +23,8 @@ impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, jump_home, update_transform, rotate_keyboard, rotate_mouse))
+            .init_resource::<ScreenshotSeq>()
+            .add_systems(Update, (screenshot_sequence, move_cam_keyboard, move_cam_mouse, jump_home, update_transform, rotate_keyboard, rotate_mouse))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -67,17 +68,62 @@ fn spawn_camera(
     ));
 }
 
-fn screenshot_on_f2(
+#[derive(Default)]
+enum ShotPhase {
+    #[default]
+    Idle,
+    // UI hidden this frame; capture on the next so the hide has rendered.
+    Capture,
+    // Capture spawned; restore UI visibility next frame.
+    Restore,
+}
+
+#[derive(Resource, Default)]
+struct ScreenshotSeq {
+    phase: ShotPhase,
+    counter: u32,
+    // Prior visibility of each hidden overlay, restored after capture.
+    saved: Vec<(Entity, Visibility)>,
+}
+
+// F2 hides overlay UI, waits a frame, captures, then restores. `Screenshotting`
+// lets non-Visibility UI (view cube, egui brick info) opt out during capture.
+fn screenshot_sequence(
     input: Res<ButtonInput<KeyCode>>,
     mut commands: Commands,
-    mut counter: Local<u32>,
+    mut seq: ResMut<ScreenshotSeq>,
+    mut screenshotting: ResMut<Screenshotting>,
+    mut overlays: Query<(Entity, &mut Visibility), With<HideOnScreenshot>>,
 ) {
-    if input.just_pressed(KeyCode::F2) {
-        let path = format!("./screenshot-{}.png", *counter);
-        *counter += 1;
-        commands
-            .spawn(Screenshot::primary_window())
-            .observe(save_to_disk(path));
+    match seq.phase {
+        ShotPhase::Idle => {
+            if input.just_pressed(KeyCode::F2) {
+                seq.saved.clear();
+                for (entity, mut vis) in overlays.iter_mut() {
+                    seq.saved.push((entity, *vis));
+                    *vis = Visibility::Hidden;
+                }
+                seq.phase = ShotPhase::Capture;
+                screenshotting.0 = true;
+            }
+        }
+        ShotPhase::Capture => {
+            let path = format!("./screenshot-{}.png", seq.counter);
+            seq.counter += 1;
+            commands
+                .spawn(Screenshot::primary_window())
+                .observe(save_to_disk(path));
+            seq.phase = ShotPhase::Restore;
+        }
+        ShotPhase::Restore => {
+            for (entity, vis) in seq.saved.drain(..) {
+                if let Ok((_, mut current)) = overlays.get_mut(entity) {
+                    *current = vis;
+                }
+            }
+            screenshotting.0 = false;
+            seq.phase = ShotPhase::Idle;
+        }
     }
 }
 

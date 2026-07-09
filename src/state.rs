@@ -15,6 +15,14 @@ pub struct BuildLoaded(pub bool);
 #[derive(Resource, Default)]
 pub struct BrickInfoEnabled(pub bool);
 
+/// True while a screenshot is being captured, so overlay UI can hide itself.
+#[derive(Resource, Default)]
+pub struct Screenshotting(pub bool);
+
+/// UI overlays that should be hidden from screenshots (FPS, console, prompt, ...).
+#[derive(Component)]
+pub struct HideOnScreenshot;
+
 impl GameState {
     pub fn input_listening(&self) -> bool {
         match self.input {

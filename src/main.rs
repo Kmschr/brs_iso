@@ -83,6 +83,7 @@ fn main() {
         .insert_resource(GameState::default())
         .init_resource::<state::BuildLoaded>()
         .init_resource::<state::BrickInfoEnabled>()
+        .init_resource::<state::Screenshotting>()
         .insert_resource(GlobalVolume::new(bevy::audio::Volume::Linear(0.2)))
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin, viewcube::ViewCubePlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
@@ -126,6 +127,7 @@ fn setup(
     // Centered prompt shown until a build is loaded.
     commands.spawn((
         LoadPrompt,
+        state::HideOnScreenshot,
         Node {
             position_type: PositionType::Absolute,
             width: Val::Percent(100.),
@@ -160,11 +162,13 @@ fn brick_info(
     bvh_query: Query<&SaveBVH>,
     viewcube_hover: Res<viewcube::ViewCubeHover>,
     brick_info_enabled: Res<state::BrickInfoEnabled>,
+    screenshotting: Res<state::Screenshotting>,
     mut contexts: EguiContexts,
     mut gizmos: Gizmos,
 ) {
-    // Off by default; toggled via the `/brickinfo` console command.
-    if !brick_info_enabled.0 {
+    // Off by default; toggled via the `/brickinfo` console command. Also hidden
+    // while a screenshot is being captured.
+    if !brick_info_enabled.0 || screenshotting.0 {
         return;
     }
 

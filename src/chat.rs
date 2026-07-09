@@ -54,6 +54,7 @@ fn spawn_chat(
         BackgroundColor(Color::BLACK),
         BorderColor::all(Color::WHITE),
         Visibility::Hidden,
+        crate::state::HideOnScreenshot,
         Console,
     )).with_children(|parent| {
         // Chat text: root ">" section, then spans for

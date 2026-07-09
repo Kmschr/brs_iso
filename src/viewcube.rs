@@ -9,7 +9,7 @@ use bevy::{
 };
 
 use crate::cam::IsoCamera;
-use crate::state::BuildLoaded;
+use crate::state::{BuildLoaded, Screenshotting};
 
 // CAD-style view cube: a chamfered cube rendered by a second camera into a
 // small corner viewport. Faces, edge bevels, and corners are separate meshes;
@@ -215,11 +215,13 @@ fn piece_mesh(verts: &[Vec3], uvs: Option<&[Vec2; 4]>, outward: Vec3) -> Mesh {
 // Hide the cube (and stop it eating clicks) until a build is loaded.
 fn toggle_viewcube(
     build_loaded: Res<BuildLoaded>,
+    screenshotting: Res<Screenshotting>,
     mut cam_query: Query<&mut Camera, With<ViewCubeCam>>,
 ) {
     let Ok(mut camera) = cam_query.single_mut() else { return; };
-    if camera.is_active != build_loaded.0 {
-        camera.is_active = build_loaded.0;
+    let active = build_loaded.0 && !screenshotting.0;
+    if camera.is_active != active {
+        camera.is_active = active;
     }
 }
 

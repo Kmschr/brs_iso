@@ -26,6 +26,7 @@ fn setup_fps_counter(
     // create our UI root node (wrapper/container for the text)
     let root = commands.spawn((
         FpsRoot,
+        crate::state::HideOnScreenshot,
         Node {
             position_type: PositionType::Absolute,
             // position it at the top-right corner, 1% away from the edges
