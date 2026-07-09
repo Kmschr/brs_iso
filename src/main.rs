@@ -58,6 +58,9 @@ struct Ground;
 #[derive(Component)]
 struct ChunkMesh;
 
+#[derive(Component)]
+struct LoadPrompt;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -88,7 +91,7 @@ fn main() {
         .add_systems(Update, set_window_icon)
         .add_systems(PostStartup, setup)
         .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
-        .add_systems(Update, (bvh_gizmos, change_depth, spotlight_gizmos, light_gizmos))
+        .add_systems(Update, (bvh_gizmos, change_depth, spotlight_gizmos, light_gizmos, toggle_load_prompt))
         // egui UI must run in the primary-context pass under bevy_egui's multi-pass mode
         .add_systems(EguiPrimaryContextPass, brick_info)
         .run();
@@ -119,6 +122,36 @@ fn setup(
         Visibility::Hidden,
         Ground,
     ));
+
+    // Centered prompt shown until a build is loaded.
+    commands.spawn((
+        LoadPrompt,
+        Node {
+            position_type: PositionType::Absolute,
+            width: Val::Percent(100.),
+            height: Val::Percent(100.),
+            align_items: AlignItems::Center,
+            justify_content: JustifyContent::Center,
+            ..default()
+        },
+        Pickable::IGNORE,
+    )).with_child((
+        Text::new("Press L to load a build"),
+        TextFont { font_size: FontSize::Px(28.0), ..default() },
+        TextColor(Color::WHITE),
+    ));
+}
+
+// Show the "Press L to load a build" prompt only while nothing is loaded.
+fn toggle_load_prompt(
+    build_loaded: Res<state::BuildLoaded>,
+    mut query: Query<&mut Visibility, With<LoadPrompt>>,
+) {
+    if !build_loaded.is_changed() {
+        return;
+    }
+    let Ok(mut vis) = query.single_mut() else { return; };
+    *vis = if build_loaded.0 { Visibility::Hidden } else { Visibility::Visible };
 }
 
 fn brick_info(
