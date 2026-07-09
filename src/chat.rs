@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
 
-use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, BuildLoaded, GameState, InputState}, ChunkMesh, Ground, SaveBVH, Water};
+use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, BrickInfoEnabled, BuildLoaded, GameState, InputState}, ChunkMesh, Ground, SaveBVH, Water};
 
 pub struct ChatPlugin;
 
@@ -127,6 +127,7 @@ fn keyboard_system(
     mut rd: MessageReader<KeyboardInput>,
     mut game_state: ResMut<GameState>,
     mut build_loaded: ResMut<BuildLoaded>,
+    mut brick_info_enabled: ResMut<BrickInfoEnabled>,
     mut commands: Commands,
     mesh_query: Query<Entity, With<ChunkMesh>>,
     mut light_query: Query<(Entity, &mut Visibility), (With<Light>, Without<Water>, Without<Console>)>,
@@ -225,6 +226,10 @@ fn keyboard_system(
                     },
                     "/debuglights" | "/lightdebug" => {
                         game_state.light_debug = !game_state.light_debug;
+                    }
+                    "/brickinfo" => {
+                        brick_info_enabled.0 = !brick_info_enabled.0;
+                        info!("Brick info {}", if brick_info_enabled.0 { "on" } else { "off" });
                     }
                     _ => {}
                 }

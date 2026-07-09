@@ -159,9 +159,15 @@ fn brick_info(
     cameras: Query<(&Camera, &GlobalTransform), With<IsoCamera>>,
     bvh_query: Query<&SaveBVH>,
     viewcube_hover: Res<viewcube::ViewCubeHover>,
+    brick_info_enabled: Res<state::BrickInfoEnabled>,
     mut contexts: EguiContexts,
     mut gizmos: Gizmos,
 ) {
+    // Off by default; toggled via the `/brickinfo` console command.
+    if !brick_info_enabled.0 {
+        return;
+    }
+
     // The view cube owns the cursor while hovered.
     if viewcube_hover.0 {
         return;
