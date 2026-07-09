@@ -185,11 +185,19 @@ fn partition_bricks(indices: &mut [usize], aabbs: &[AABB]) -> (usize, AABB) {
     (k, aabb)
 }
 
+// (position bits, packed normal, packed color) — the full vertex identity.
+// World positions are exact f32 integers (integer local coords through
+// axis-aligned 90° rotations + integer brick offset), so coincident verts are
+// bit-identical and safe to weld on this key.
+type VertKey = ([u32; 3], [i8; 4], [u8; 4]);
+
 pub struct Buffers {
     position: Vec<[f32; 3]>,
     color: Vec<[u8; 4]>,
     normal: Vec<[i8; 4]>,
     indices: Vec<u32>,
+    // welds duplicate verts across faces within this chunk
+    vert_map: HashMap<VertKey, u32>,
 }
 
 impl Buffers {
@@ -199,7 +207,21 @@ impl Buffers {
             color: Vec::new(),
             normal: Vec::new(),
             indices: Vec::new(),
+            vert_map: HashMap::default(),
         }
+    }
+
+    fn weld(&mut self, pos: [f32; 3], normal: [i8; 4], color: [u8; 4]) -> u32 {
+        let key = ([pos[0].to_bits(), pos[1].to_bits(), pos[2].to_bits()], normal, color);
+        if let Some(&idx) = self.vert_map.get(&key) {
+            return idx;
+        }
+        let idx = self.position.len() as u32;
+        self.position.push(pos);
+        self.color.push(color);
+        self.normal.push(normal);
+        self.vert_map.insert(key, idx);
+        idx
     }
 }
 
@@ -248,12 +270,6 @@ impl<'a> BVHMeshGenerator<'a> {
         info!("Culled faces in {} seconds", now.elapsed().unwrap().as_secs_f32());
 
         let now = SystemTime::now();
-        let mut material_chunks: Vec<HashMap<IVec3, Buffers>> = vec![
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-        ];
 
         let mut material_map: Vec<usize> = Vec::with_capacity(self.save_data.header2.materials.len());
         for i in 0..self.save_data.header2.materials.len() {
@@ -267,80 +283,98 @@ impl<'a> BVHMeshGenerator<'a> {
             material_map.push(point);
         }
 
-        let mut final_faces = 0;
+        // Bucket bricks by (material slot, chunk coord). Cheap serial pass; the
+        // expensive weld+triangulate happens per bucket in parallel below.
+        let mut buckets: HashMap<(usize, IVec3), Vec<usize>> = HashMap::default();
         for i in 0..self.save_data.bricks.len() {
-            let brick_faces = &self.faces[i];
-            if brick_faces.is_empty() {
+            if self.faces[i].is_empty() {
                 continue;
             }
-
             let material = material_map[self.save_data.bricks[i].material_index as usize];
+            let chunk = self.aabbs[i].center / CHUNK_SIZE;
+            buckets.entry((material, chunk)).or_default().push(i);
+        }
 
-            let chunk_coordinates = self.aabbs[i].center / CHUNK_SIZE;
-            let buffers = material_chunks[material]
-                .entry(chunk_coordinates)
-                .or_insert_with(Buffers::new);
+        // Each chunk is independent (its own weld map), so build them all across
+        // cores instead of welding millions of verts on one thread.
+        let buckets: Vec<((usize, IVec3), Vec<usize>)> = buckets.into_iter().collect();
+        let built: Vec<(usize, Mesh, usize)> = buckets.par_iter()
+            .map(|((material, _chunk), brick_ids)| {
+                let (mesh, verts) = self.build_chunk_mesh(brick_ids, &hidden_masks);
+                (*material, mesh, verts)
+            })
+            .collect();
 
-            let color = &self.save_data.bricks[i].color;
-            let color = match color {
-                BrickColor::Index(i) => cu8(&self.save_data.header2.colors[*i as usize]),
+        let mut material_meshes: Vec<Vec<Mesh>> = vec![Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        let total_chunks = built.len();
+        let mut total_verts = 0;
+        for (material, mesh, verts) in built {
+            total_verts += verts;
+            material_meshes[material].push(mesh);
+        }
+
+        info!("Generated {} mesh chunks ({} welded verts) in {} seconds", total_chunks, total_verts, now.elapsed().unwrap().as_secs_f32());
+        material_meshes
+    }
+
+    // Weld + triangulate one chunk's visible faces into a single mesh. Runs on a
+    // rayon worker; touches only shared immutable state (`self`, `hidden_masks`).
+    fn build_chunk_mesh(&self, brick_ids: &[usize], hidden_masks: &[u16]) -> (Mesh, usize) {
+        let mut buffers = Buffers::new();
+
+        for &i in brick_ids {
+            let color = match &self.save_data.bricks[i].color {
+                BrickColor::Index(c) => cu8(&self.save_data.header2.colors[*c as usize]),
                 BrickColor::Unique(color) => cu8(color),
             };
 
+            let brick_faces = &self.faces[i];
             for j in 0..brick_faces.len() {
                 if hidden_masks[i] & (1 << j) != 0 {
                     continue;
                 }
 
-                let face = &self.faces[i][j];
+                let face = &brick_faces[j];
                 let normal = pack_normal(face.normal);
 
-                final_faces += 1;
-
-                // Push each face's verts once and fan-triangulate with an index
-                // buffer, instead of duplicating shared verts per triangle.
-                let base = buffers.position.len() as u32;
-                for vert in &face.verts {
-                    buffers.position.push(vert.to_array());
-                    buffers.color.push(color);
-                    buffers.normal.push(normal);
+                // Weld each vert against the chunk (dedups shared verts across
+                // coplanar same-color faces), then fan-triangulate over the
+                // resolved indices. Faces have at most 5 verts.
+                let mut vi = [0u32; 8];
+                for (k, vert) in face.verts.iter().enumerate() {
+                    // flush -0.0 to +0.0 so mirrored bricks weld
+                    let pos = (*vert + Vec3::ZERO).to_array();
+                    vi[k] = buffers.weld(pos, normal, color);
                 }
-                for k in 0..(face.verts.len() as u32).saturating_sub(2) {
-                    buffers.indices.push(base);
-                    buffers.indices.push(base + 2 + k);
-                    buffers.indices.push(base + 1 + k);
+                for k in 0..face.verts.len().saturating_sub(2) {
+                    buffers.indices.push(vi[0]);
+                    buffers.indices.push(vi[2 + k]);
+                    buffers.indices.push(vi[1 + k]);
                 }
             }
         }
-    
-        info!("{} final faces", final_faces);
-    
-        let mut material_meshes: Vec<Vec<Mesh>> = vec![
-            Vec::with_capacity(material_chunks[0].len()),
-            Vec::with_capacity(material_chunks[1].len()),
-            Vec::with_capacity(material_chunks[2].len()),
-            Vec::with_capacity(material_chunks[3].len()),
-        ];
 
-        let mut total_chunks = 0;
-        let mut i = 0;
-        for chunks in material_chunks.into_iter() {
-            for (_, buffers) in chunks.into_iter() {
-                // RENDER_WORLD only: nothing reads these meshes back on the
-                // CPU (picking uses the BVH), so don't keep a main-world copy.
-                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
-                mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, buffers.position);
-                mesh.insert_attribute(ATTRIBUTE_PACKED_COLOR, VertexAttributeValues::Unorm8x4(buffers.color));
-                mesh.insert_attribute(ATTRIBUTE_PACKED_NORMAL, VertexAttributeValues::Snorm8x4(buffers.normal));
-                mesh.insert_indices(Indices::U32(buffers.indices));
-                material_meshes[i].push(mesh);
-                total_chunks += 1;
-            }
-            i += 1;
-        }
+        // drop the weld map up front — only the vertex buffers feed the mesh
+        let Buffers { position, color, normal, indices, vert_map } = buffers;
+        drop(vert_map);
+        let verts = position.len();
 
-        info!("Generated {} mesh chunks in {} seconds", total_chunks, now.elapsed().unwrap().as_secs_f32());
-        material_meshes
+        // narrow indices halve the index buffer when the chunk's verts all
+        // address in 16 bits
+        let indices = if verts <= u16::MAX as usize + 1 {
+            Indices::U16(indices.iter().map(|&x| x as u16).collect())
+        } else {
+            Indices::U32(indices)
+        };
+
+        // RENDER_WORLD only: nothing reads these meshes back on the CPU
+        // (picking uses the BVH), so don't keep a main-world copy.
+        let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, position);
+        mesh.insert_attribute(ATTRIBUTE_PACKED_COLOR, VertexAttributeValues::Unorm8x4(color));
+        mesh.insert_attribute(ATTRIBUTE_PACKED_NORMAL, VertexAttributeValues::Snorm8x4(normal));
+        mesh.insert_indices(indices);
+        (mesh, verts)
     }
 
     pub fn center_of_mass(&self) -> Vec3 {
