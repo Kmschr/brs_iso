@@ -1,11 +1,27 @@
 use std::{ops::{Index, Neg}, time::SystemTime};
 
-use bevy::{asset::RenderAssetUsages, math::I64Vec3, mesh::Indices, platform::collections::HashMap, prelude::*, render::render_resource::PrimitiveTopology};
+use bevy::{asset::RenderAssetUsages, math::I64Vec3, mesh::{Indices, MeshVertexAttribute, VertexAttributeValues}, platform::collections::HashMap, prelude::*, render::render_resource::{PrimitiveTopology, VertexFormat}};
 use rayon::prelude::*;
 use brickadia::{save::{SaveData, Size, Brick, BrickColor}, util::{BRICK_SIZE_MAP, rotation::d2o}};
 use lazy_static::lazy_static;
 
-use crate::{faces::*, aabb::AABB, utils::cc};
+use crate::{faces::*, aabb::AABB, utils::cu8};
+
+// Packed vertex attributes: 20 B/vertex instead of 40 B. These reuse the ids
+// of `Mesh::ATTRIBUTE_NORMAL`/`ATTRIBUTE_COLOR`, so the standard PBR pipeline
+// resolves the shader defs and vertex layout for them by id and takes the
+// packed format from the mesh itself. The GPU unpacks to float during vertex
+// fetch, and wgpu permits a 4-component format on the shader's vec3 normal
+// input (narrowing is valid).
+const ATTRIBUTE_PACKED_NORMAL: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vertex_Normal", 1, VertexFormat::Snorm8x4);
+const ATTRIBUTE_PACKED_COLOR: MeshVertexAttribute =
+    MeshVertexAttribute::new("Vertex_Color", 5, VertexFormat::Unorm8x4);
+
+fn pack_normal(normal: Vec3) -> [i8; 4] {
+    let q = (normal * 127.0).round();
+    [q.x as i8, q.y as i8, q.z as i8, 0]
+}
 
 macro_rules! rm {
     (
@@ -171,8 +187,8 @@ fn partition_bricks(indices: &mut [usize], aabbs: &[AABB]) -> (usize, AABB) {
 
 pub struct Buffers {
     position: Vec<[f32; 3]>,
-    color: Vec<[f32; 4]>,
-    normal: Vec<[f32; 3]>,
+    color: Vec<[u8; 4]>,
+    normal: Vec<[i8; 4]>,
     indices: Vec<u32>,
 }
 
@@ -267,17 +283,17 @@ impl<'a> BVHMeshGenerator<'a> {
 
             let color = &self.save_data.bricks[i].color;
             let color = match color {
-                BrickColor::Index(i) => cc(&self.save_data.header2.colors[*i as usize]),
-                BrickColor::Unique(color) => cc(color),
+                BrickColor::Index(i) => cu8(&self.save_data.header2.colors[*i as usize]),
+                BrickColor::Unique(color) => cu8(color),
             };
-    
+
             for j in 0..brick_faces.len() {
                 if hidden_masks[i] & (1 << j) != 0 {
                     continue;
                 }
 
                 let face = &self.faces[i][j];
-                let normal = face.normal.to_array();
+                let normal = pack_normal(face.normal);
 
                 final_faces += 1;
 
@@ -310,10 +326,12 @@ impl<'a> BVHMeshGenerator<'a> {
         let mut i = 0;
         for chunks in material_chunks.into_iter() {
             for (_, buffers) in chunks.into_iter() {
-                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default());
+                // RENDER_WORLD only: nothing reads these meshes back on the
+                // CPU (picking uses the BVH), so don't keep a main-world copy.
+                let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD);
                 mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, buffers.position);
-                mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, buffers.color);
-                mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, buffers.normal);
+                mesh.insert_attribute(ATTRIBUTE_PACKED_COLOR, VertexAttributeValues::Unorm8x4(buffers.color));
+                mesh.insert_attribute(ATTRIBUTE_PACKED_NORMAL, VertexAttributeValues::Snorm8x4(buffers.normal));
                 mesh.insert_indices(Indices::U32(buffers.indices));
                 material_meshes[i].push(mesh);
                 total_chunks += 1;

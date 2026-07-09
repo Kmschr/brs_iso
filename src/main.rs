@@ -13,6 +13,7 @@ mod settings;
 mod fps;
 mod lit;
 mod utils;
+mod viewcube;
 
 use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, thread};
 
@@ -78,7 +79,7 @@ fn main() {
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
         .insert_resource(GlobalVolume::new(bevy::audio::Volume::Linear(0.2)))
-        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin))
+        .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin, viewcube::ViewCubePlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
         .add_plugins(EguiPlugin::default())
         .add_plugins(EmbeddedAssetPlugin::default())
@@ -120,11 +121,17 @@ fn setup(
 
 fn brick_info(
     window_query: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    cameras: Query<(&Camera, &GlobalTransform), With<IsoCamera>>,
     bvh_query: Query<&SaveBVH>,
+    viewcube_hover: Res<viewcube::ViewCubeHover>,
     mut contexts: EguiContexts,
     mut gizmos: Gizmos,
 ) {
+    // The view cube owns the cursor while hovered.
+    if viewcube_hover.0 {
+        return;
+    }
+
     for save_bvh in bvh_query.iter() {
         let window = match window_query.single() {
             Ok(window) => window,

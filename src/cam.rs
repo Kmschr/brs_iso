@@ -19,42 +19,11 @@ pub struct IsoCamera {
     pub vertical_angle: f32,
 }
 
-#[derive(Component)]
-struct CamButton {
-    view: ViewType,
-}
-
-impl CamButton {
-    fn new(view: ViewType) -> Self {
-        Self {
-            view,
-        }
-    }
-}
-
-#[derive(Default)]
-enum ViewType {
-    Top,
-    Left,
-    Right,
-    Back,
-    Front,
-    #[default]
-    BottomRight,
-    BottomLeft,
-    TopRight,
-    TopLeft,
-}
-
-const NORMAL_BUTTON: Color = Color::srgba(0.25, 0.25, 0.25, 0.5);
-const HOVERED_BUTTON: Color = Color::srgba(0.35, 0.35, 0.35, 0.5);
-const PRESSED_BUTTON: Color = Color::srgb(0.45, 0.45, 0.45);
-
 impl Plugin for IsoCameraPlugin {
     fn build(&self, app: &mut App) {
         app
             .add_systems(Startup, spawn_camera)
-            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, camera_buttons, jump_home, update_transform, rotate_keyboard, rotate_mouse))
+            .add_systems(Update, (screenshot_on_f2, move_cam_keyboard, move_cam_mouse, jump_home, update_transform, rotate_keyboard, rotate_mouse))
             .add_systems(FixedUpdate, zoom_cam);
     }
 }
@@ -86,6 +55,8 @@ fn spawn_camera(
             brightness: 600.0,
             ..default()
         },
+        // The view cube adds a second camera; UI must anchor to this one.
+        bevy::ui::IsDefaultUiCamera,
         // Disable MSAA as it is incompatible with deferred rendering, use FXAA instead
         Msaa::Off,
         ClusterConfig::Single,
@@ -93,56 +64,6 @@ fn spawn_camera(
         MotionVectorPrepass,
         DeferredPrepass,
         Fxaa::default(),
-    ));
-
-    commands.spawn((
-        Button,
-        Node {
-            width: Val::Px(50.),
-            height: Val::Px(50.),
-            border: UiRect::all(Val::Px(1.0)),
-            position_type: PositionType::Absolute,
-            justify_content: JustifyContent::Center,
-            align_items: AlignItems::Center,
-            right: Val::Px(40.),
-            bottom: Val::Px(40.),
-            ..default()
-        },
-        BorderColor::all(Color::BLACK),
-        BackgroundColor(NORMAL_BUTTON),
-        CamButton::new(ViewType::Top),
-    )).with_children(|parent| {
-        parent.spawn((
-            Text::new("View"),
-            TextColor(Color::BLACK),
-        ));
-    });
-
-    spawn_view_button(&mut commands, 20., 50., 20., 40., ViewType::Right);
-    spawn_view_button(&mut commands, 20., 50., 90., 40., ViewType::Left);
-    spawn_view_button(&mut commands, 50., 20., 40., 20., ViewType::Front);
-    spawn_view_button(&mut commands, 50., 20., 40., 90., ViewType::Back);
-    spawn_view_button(&mut commands, 20., 20., 20., 20., ViewType::BottomRight);
-    spawn_view_button(&mut commands, 20., 20., 20., 90., ViewType::TopRight);
-    spawn_view_button(&mut commands, 20., 20., 90., 90., ViewType::TopLeft);
-    spawn_view_button(&mut commands, 20., 20., 90., 20., ViewType::BottomLeft);
-}
-
-fn spawn_view_button(commands: &mut Commands, width: f32, height: f32, right: f32, bottom: f32, view_type: ViewType) {
-    commands.spawn((
-        Button,
-        Node {
-            width: Val::Px(width),
-            height: Val::Px(height),
-            border: UiRect::all(Val::Px(1.0)),
-            position_type: PositionType::Absolute,
-            right: Val::Px(right),
-            bottom: Val::Px(bottom),
-            ..default()
-        },
-        BorderColor::all(Color::BLACK),
-        BackgroundColor(NORMAL_BUTTON),
-        CamButton::new(view_type),
     ));
 }
 
@@ -162,7 +83,7 @@ fn screenshot_on_f2(
 
 fn move_cam_mouse(
     mut cam_query: Query<(&Transform, &mut IsoCamera)>,
-    projection_query: Query<&Projection>,
+    projection_query: Query<&Projection, With<IsoCamera>>,
     mut motion_evr: MessageReader<MouseMotion>,
     mouse: Res<ButtonInput<MouseButton>>,
 ) {
@@ -197,70 +118,6 @@ fn move_cam_mouse(
     let move_z = transform.local_y() * motion.y;
 
     cam.target += (move_x + move_z) * 0.0015 * scale;
-}
-
-fn camera_buttons(
-    mut interaction_query: Query<
-        (
-            &Interaction,
-            &mut BackgroundColor,
-            &mut BorderColor,
-            &CamButton,
-        ),
-        (Changed<Interaction>, With<Button>),
-    >,
-    mut cam_query: Query<&mut IsoCamera>,
-) {
-    for (interaction, mut color, mut border_color, cam_button) in &mut interaction_query {
-        match *interaction {
-            Interaction::Pressed => {
-                let (horizontal_angle, vertical_angle) = match cam_button.view {
-                    ViewType::Top => {
-                        (0.0, 0.0)
-                    },
-                    ViewType::Front => {
-                        (90.0, 90.0)
-                    },
-                    ViewType::Back => {
-                        (270.0, 90.0)
-                    },
-                    ViewType::Right => {
-                        (0.0, 90.0)
-                    },
-                    ViewType::Left => {
-                        (180.0, 90.0)
-                    },
-                    ViewType::BottomRight => {
-                        (45.0, 45.0)
-                    },
-                    ViewType::TopRight => {
-                        (315.0, 45.0)
-                    },
-                    ViewType::TopLeft => {
-                        (225.0, 45.0)
-                    },
-                    ViewType::BottomLeft => {
-                        (135.0, 45.0)
-                    },
-                };
-
-                let mut cam = cam_query.single_mut().unwrap();
-                cam.horizontal_angle = horizontal_angle;
-                cam.vertical_angle = vertical_angle;
-
-                *color = PRESSED_BUTTON.into();
-                *border_color = BorderColor::all(Color::srgb(1.0, 0.0, 0.0));
-            }
-            Interaction::Hovered => {
-                *color = HOVERED_BUTTON.into();
-                *border_color = BorderColor::all(Color::WHITE);
-            }
-            Interaction::None => {
-                *color = NORMAL_BUTTON.into();
-                *border_color = BorderColor::all(Color::BLACK);
-            }
-        }
-    }
 }
 
 fn move_cam_keyboard(
@@ -299,7 +156,7 @@ fn move_cam_keyboard(
 
 fn zoom_cam(
     mut scroll_evr: MessageReader<MouseWheel>,
-    mut query: Query<&mut Projection>,
+    mut query: Query<&mut Projection, With<IsoCamera>>,
     time: Res<Time>,
 ) {
     let mut zoom_delta = 0.;

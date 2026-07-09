@@ -1,4 +1,4 @@
-use bevy::{prelude::*, light::{DirectionalLightShadowMap, CascadeShadowConfig, CascadeShadowConfigBuilder}};
+use bevy::{prelude::*, light::{cluster::GlobalClusterSettings, DirectionalLightShadowMap, CascadeShadowConfig, CascadeShadowConfigBuilder}};
 
 use crate::{bvh::BVHNode, cam::IsoCamera, state::{GameState, InputState}, SaveBVH};
 
@@ -19,8 +19,20 @@ impl Plugin for LightPlugin {
         app
             .insert_resource(DirectionalLightShadowMap { size: SHADOW_MAP_SIZE })
             // AmbientLight is a component in Bevy 0.19; it's placed on the camera.
-            .add_systems(Startup, spawn_light)
+            .add_systems(Startup, (spawn_light, raise_cluster_capacity))
             .add_systems(Update, (animate_light_direction, fit_shadow_cascades));
+    }
+}
+
+// Saves can spawn hundreds of point/spot lights, which overflows the GPU
+// clustering lists sized for typical scenes; Bevy grows them on demand but
+// warns and may corrupt lighting for a few frames each time. Preallocate
+// enough headroom up front (must run before the first frame renders, since
+// per-view clustering buffers copy these initial capacities).
+fn raise_cluster_capacity(mut settings: ResMut<GlobalClusterSettings>) {
+    if let Some(gpu) = settings.gpu_clustering.as_mut() {
+        gpu.initial_z_slice_list_capacity = gpu.initial_z_slice_list_capacity.max(8192);
+        gpu.initial_index_list_capacity = gpu.initial_index_list_capacity.max(8192);
     }
 }
 
