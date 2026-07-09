@@ -11,6 +11,10 @@ pub struct GameState {
 #[derive(Resource, Default)]
 pub struct BuildLoaded(pub bool);
 
+/// True from when a save file is picked until its meshes are generated.
+#[derive(Resource, Default)]
+pub struct Loading(pub bool);
+
 /// Whether the brick-hover info window is enabled (off by default, toggled via console).
 #[derive(Resource, Default)]
 pub struct BrickInfoEnabled(pub bool);

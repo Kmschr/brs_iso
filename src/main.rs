@@ -19,7 +19,7 @@ use std::{path::PathBuf, io::BufReader, fs::File, sync::mpsc::{Receiver, self}, 
 
 use aabb::AABB;
 use asset_loader::{AssetLoaderPlugin, SceneAssets};
-use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, window::{PrimaryWindow, WindowResolution}, winit::WinitWindows};
+use bevy::{diagnostic::FrameTimeDiagnosticsPlugin, pbr::DefaultOpaqueRendererMethod, prelude::*, tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task}, window::{PrimaryWindow, WindowResolution}, winit::WinitWindows};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use brickadia::{save::SaveData, read::SaveReader};
@@ -49,6 +49,20 @@ struct SaveBVH {
 }
 
 
+// Result of the off-thread mesh-gen task; consumed by `poll_gen_task`.
+struct LoadedBuild {
+    save_data: SaveData,
+    material_meshes: Vec<Vec<Mesh>>,
+    com: Vec3,
+    bvh: BVH,
+    aabbs: Vec<AABB>,
+}
+
+// Holds the in-flight gen task so the main thread stays responsive (spinner
+// animates) while faces/BVH/meshes are built on the compute pool.
+#[derive(Resource)]
+struct GenTask(Task<LoadedBuild>);
+
 #[derive(Component)]
 struct Water;
 
@@ -60,6 +74,15 @@ struct ChunkMesh;
 
 #[derive(Component)]
 struct LoadPrompt;
+
+// The prompt's text child: shows "Press L..." when idle, an animated spinner
+// while a build loads.
+#[derive(Component)]
+struct LoadPromptText;
+
+// ASCII spinner frames (braille glyphs aren't in the default font), cycled while loading.
+const SPINNER_FRAMES: [&str; 4] = ["|", "/", "-", "\\"];
+const LOAD_PROMPT_IDLE: &str = "Press L to load a build";
 
 fn main() {
     App::new()
@@ -82,6 +105,7 @@ fn main() {
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
         .init_resource::<state::BuildLoaded>()
+        .init_resource::<state::Loading>()
         .init_resource::<state::BrickInfoEnabled>()
         .init_resource::<state::Screenshotting>()
         .insert_resource(GlobalVolume::new(bevy::audio::Volume::Linear(0.2)))
@@ -91,7 +115,7 @@ fn main() {
         .add_plugins(EmbeddedAssetPlugin::default())
         .add_systems(Update, set_window_icon)
         .add_systems(PostStartup, setup)
-        .add_systems(Update, (pick_path, load_brs, load_save, spawn_chunks, move_water))
+        .add_systems(Update, (pick_path, load_brs, load_save, poll_gen_task, spawn_chunks, move_water))
         .add_systems(Update, (bvh_gizmos, change_depth, spotlight_gizmos, light_gizmos, toggle_load_prompt))
         // egui UI must run in the primary-context pass under bevy_egui's multi-pass mode
         .add_systems(EguiPrimaryContextPass, brick_info)
@@ -138,22 +162,37 @@ fn setup(
         },
         Pickable::IGNORE,
     )).with_child((
-        Text::new("Press L to load a build"),
+        LoadPromptText,
+        Text::new(LOAD_PROMPT_IDLE),
         TextFont { font_size: FontSize::Px(28.0), ..default() },
         TextColor(Color::WHITE),
     ));
 }
 
-// Show the "Press L to load a build" prompt only while nothing is loaded.
+// Drive the centered prompt: hidden once a build is loaded, an animated spinner
+// while one is loading, and the "Press L..." hint otherwise.
 fn toggle_load_prompt(
     build_loaded: Res<state::BuildLoaded>,
-    mut query: Query<&mut Visibility, With<LoadPrompt>>,
+    loading: Res<state::Loading>,
+    time: Res<Time>,
+    mut prompt: Query<&mut Visibility, With<LoadPrompt>>,
+    mut label: Query<&mut Text, With<LoadPromptText>>,
 ) {
-    if !build_loaded.is_changed() {
+    let Ok(mut vis) = prompt.single_mut() else { return; };
+    let Ok(mut text) = label.single_mut() else { return; };
+
+    if build_loaded.0 {
+        *vis = Visibility::Hidden;
         return;
     }
-    let Ok(mut vis) = query.single_mut() else { return; };
-    *vis = if build_loaded.0 { Visibility::Hidden } else { Visibility::Visible };
+
+    *vis = Visibility::Visible;
+    if loading.0 {
+        let frame = (time.elapsed_secs() * 12.0) as usize % SPINNER_FRAMES.len();
+        text.0 = SPINNER_FRAMES[frame].to_string();
+    } else {
+        text.0 = LOAD_PROMPT_IDLE.to_string();
+    }
 }
 
 fn brick_info(
@@ -304,6 +343,7 @@ fn load_brs(
             AudioPlayer::new(assets.sounds.upload_start.clone()),
             PlaybackSettings::DESPAWN,
         ));
+        world.resource_mut::<state::Loading>().0 = true;
 
         let path = path.unwrap();
         let (tx, rx) = mpsc::channel();
@@ -315,26 +355,53 @@ fn load_brs(
     }
 }
 
+// Kick mesh gen onto the async compute pool so the main thread (and spinner)
+// stays live during the heavy face/BVH/mesh build.
 fn load_save(
+    mut commands: Commands,
+    save_receiver: Option<NonSend<Receiver<SaveData>>>,
+) {
+    let Some(save_receiver) = save_receiver else {
+        return;
+    };
+    let Ok(save_data) = save_receiver.try_recv() else {
+        return;
+    };
+    info!("Loaded {:?} bricks", &save_data.bricks.len());
+
+    let task = AsyncComputeTaskPool::get().spawn(async move {
+        // generator borrows save_data; move the owned results out and let it
+        // drop before handing save_data back to the main world
+        let (material_meshes, com, bvh, aabbs) = {
+            let generator = BVHMeshGenerator::new(&save_data);
+            let material_meshes = generator.gen_mesh();
+            let com = generator.center_of_mass();
+            (material_meshes, com, generator.bvh, generator.aabbs)
+        };
+        LoadedBuild { save_data, material_meshes, com, bvh, aabbs }
+    });
+    commands.insert_resource(GenTask(task));
+}
+
+// Drain the finished gen task: spawn lights, chunk entities, and the BVH, then
+// clear the loading state.
+fn poll_gen_task(
     mut commands: Commands,
     mut cam_query: Query<&mut IsoCamera>,
     mut build_loaded: ResMut<state::BuildLoaded>,
+    mut loading: ResMut<state::Loading>,
     assets: Res<SceneAssets>,
-    save_receiver: Option<NonSend<Receiver<SaveData>>>,
+    task: Option<ResMut<GenTask>>,
 ) {
-    if save_receiver.is_none() {
+    let Some(mut task) = task else {
         return;
-    }
-
-    let save_receiver = save_receiver.unwrap();
-    let save_data = save_receiver.try_recv();
-    if save_data.is_err() {
+    };
+    let Some(loaded) = block_on(future::poll_once(&mut task.0)) else {
         return;
-    }
+    };
+    commands.remove_resource::<GenTask>();
 
-    let save_data = save_data.unwrap();
-    info!("Loaded {:?} bricks", &save_data.bricks.len());
-    build_loaded.0 = true;
+    let LoadedBuild { save_data, material_meshes, com, bvh, aabbs } = loaded;
 
     let point_lights = gen_point_lights(&save_data);
     info!("Spawning {} point lights", point_lights.len());
@@ -347,13 +414,6 @@ fn load_save(
     for light in spot_lights {
         commands.spawn((light, Light));
     }
-
-    // todo: remove after meshes for most assets are generated
-    info!("{:?}", &save_data.header2.brick_assets);
-    
-    let generator = BVHMeshGenerator::new(&save_data);
-    let material_meshes = generator.gen_mesh();
-    let com = generator.center_of_mass();
 
     if let Ok(mut cam) = cam_query.single_mut() {
         cam.target = com;
@@ -375,9 +435,6 @@ fn load_save(
         i += 1;
     }
 
-    let bvh = generator.bvh;
-    let aabbs = generator.aabbs;
-
     commands.spawn(SaveBVH {
         bvh,
         save_data,
@@ -390,6 +447,8 @@ fn load_save(
         PlaybackSettings::DESPAWN,
     ));
 
+    build_loaded.0 = true;
+    loading.0 = false;
 }
 
 fn spawn_chunks(
