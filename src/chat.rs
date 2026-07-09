@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bevy::{input::{keyboard::KeyboardInput, ButtonState}, prelude::*};
 
-use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, GameState, InputState}, ChunkMesh, Ground, SaveBVH, Water};
+use crate::{asset_loader::SceneAssets, components::Light, lit::Sun, state::{BVHView, BuildLoaded, GameState, InputState}, ChunkMesh, Ground, SaveBVH, Water};
 
 pub struct ChatPlugin;
 
@@ -126,6 +126,7 @@ fn keyboard_system(
     mut console_query: Query<&mut Visibility, With<Console>>,
     mut rd: MessageReader<KeyboardInput>,
     mut game_state: ResMut<GameState>,
+    mut build_loaded: ResMut<BuildLoaded>,
     mut commands: Commands,
     mesh_query: Query<Entity, With<ChunkMesh>>,
     mut light_query: Query<(Entity, &mut Visibility), (With<Light>, Without<Water>, Without<Console>)>,
@@ -188,6 +189,7 @@ fn keyboard_system(
                         for entity in bvh_query.iter() {
                             commands.entity(entity).despawn();
                         }
+                        build_loaded.0 = false;
                     },
                     "/water" => {
                         if let Ok(mut visibility) = water_query.single_mut() {

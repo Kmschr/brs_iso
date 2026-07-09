@@ -7,6 +7,14 @@ pub struct GameState {
     pub light_debug: bool,
 }
 
+/// True once a build has been loaded; false again after it's cleared.
+#[derive(Resource, Default)]
+pub struct BuildLoaded(pub bool);
+
+/// Whether the brick-hover info window is enabled (off by default, toggled via console).
+#[derive(Resource, Default)]
+pub struct BrickInfoEnabled(pub bool);
+
 impl GameState {
     pub fn input_listening(&self) -> bool {
         match self.input {

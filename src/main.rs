@@ -78,6 +78,8 @@ fn main() {
         // deferred rendering; FXAA is used instead.
         .insert_resource(DefaultOpaqueRendererMethod::deferred())
         .insert_resource(GameState::default())
+        .init_resource::<state::BuildLoaded>()
+        .init_resource::<state::BrickInfoEnabled>()
         .insert_resource(GlobalVolume::new(bevy::audio::Volume::Linear(0.2)))
         .add_plugins((LightPlugin, AssetLoaderPlugin, ChatPlugin, SettingsPlugin, IsoCameraPlugin, viewcube::ViewCubePlugin))
         .add_plugins((FrameTimeDiagnosticsPlugin::default(), FPSPlugin))
@@ -273,6 +275,7 @@ fn load_brs(
 fn load_save(
     mut commands: Commands,
     mut cam_query: Query<&mut IsoCamera>,
+    mut build_loaded: ResMut<state::BuildLoaded>,
     assets: Res<SceneAssets>,
     save_receiver: Option<NonSend<Receiver<SaveData>>>,
 ) {
@@ -288,6 +291,7 @@ fn load_save(
 
     let save_data = save_data.unwrap();
     info!("Loaded {:?} bricks", &save_data.bricks.len());
+    build_loaded.0 = true;
 
     let point_lights = gen_point_lights(&save_data);
     info!("Spawning {} point lights", point_lights.len());

@@ -9,6 +9,7 @@ use bevy::{
 };
 
 use crate::cam::IsoCamera;
+use crate::state::BuildLoaded;
 
 // CAD-style view cube: a chamfered cube rendered by a second camera into a
 // small corner viewport. Faces, edge bevels, and corners are separate meshes;
@@ -52,7 +53,7 @@ impl Plugin for ViewCubePlugin {
         app
             .init_resource::<ViewCubeHover>()
             .add_systems(Startup, spawn_viewcube)
-            .add_systems(Update, (fit_viewcube_viewport, sync_viewcube_cam, pick_viewcube));
+            .add_systems(Update, (toggle_viewcube, fit_viewcube_viewport, sync_viewcube_cam, pick_viewcube));
     }
 }
 
@@ -211,6 +212,17 @@ fn piece_mesh(verts: &[Vec3], uvs: Option<&[Vec2; 4]>, outward: Vec3) -> Mesh {
     mesh
 }
 
+// Hide the cube (and stop it eating clicks) until a build is loaded.
+fn toggle_viewcube(
+    build_loaded: Res<BuildLoaded>,
+    mut cam_query: Query<&mut Camera, With<ViewCubeCam>>,
+) {
+    let Ok(mut camera) = cam_query.single_mut() else { return; };
+    if camera.is_active != build_loaded.0 {
+        camera.is_active = build_loaded.0;
+    }
+}
+
 // Keep the cube viewport pinned to the window's bottom-right corner.
 fn fit_viewcube_viewport(
     window_query: Query<&Window, With<PrimaryWindow>>,
@@ -261,8 +273,14 @@ fn pick_viewcube(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut hover_state: ResMut<ViewCubeHover>,
+    build_loaded: Res<BuildLoaded>,
     mut hovered: Local<Option<IVec3>>,
 ) {
+    if !build_loaded.0 {
+        hover_state.0 = false;
+        return;
+    }
+
     let (over_viewport, region) = hovered_region(&window_query, &cube_cam_query);
     hover_state.0 = over_viewport;
 
